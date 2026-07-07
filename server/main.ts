@@ -20,7 +20,7 @@ async function bootstrap() {
   });
 
   const port = config.get<number>("PORT", 3001);
-  const host = config.get<string>("HOST", "127.0.0.1");
+  const host = config.get<string>("HOST", "0.0.0.0");
   await app.listen(port, host);
   console.log(`IDly API listening on http://${host}:${port}`);
 }
