@@ -1,0 +1,11 @@
+node_modules/
+dist/
+dist-server/
+.granite/
+.playwright-cli/
+*.ait
+.env
+.env.*
+!.env.example
+server/storage/*.json
+!server/storage/.gitkeep
