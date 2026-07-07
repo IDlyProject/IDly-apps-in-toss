@@ -2,7 +2,7 @@ services:
   - type: web
     name: idly-breach-api
     env: node
-    buildCommand: npm run build:server
+    buildCommand: npm install --include=dev && npm run build:server
     startCommand: npm run start:server
     envVars:
       - key: HOST
