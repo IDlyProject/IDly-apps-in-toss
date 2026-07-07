@@ -115,6 +115,7 @@ export const actionItems: ActionItem[] = [
   { id: "act_card_kb_freeze", breachTypeId: "card_payment_leak", providerId: "kb_card", priority: 1, title: "KB국민카드 분실·도난 신고", description: "카드를 먼저 정지해 추가 피해를 막으세요.", actionType: "tel", value: "1588-1688" },
   { id: "act_card_samsung_freeze", breachTypeId: "card_payment_leak", providerId: "samsung_card", priority: 1, title: "삼성카드 분실·도난 신고", description: "부정 사용 전 즉시 정지가 핵심이에요.", actionType: "tel", value: "1588-8700" },
   { id: "act_card_hyundai_freeze", breachTypeId: "card_payment_leak", providerId: "hyundai_card", priority: 1, title: "현대카드 분실·도난 신고", description: "카드를 먼저 정지해 추가 피해를 막으세요.", actionType: "tel", value: "1577-6000" },
+  { id: "act_card_generic_freeze", breachTypeId: "card_payment_leak", providerId: null, priority: 1, title: "카드사 고객센터에 즉시 분실·도난 신고", description: "카드 뒷면 번호로 전화하거나 앱에서 즉시 이용정지 신청하세요.", actionType: "copy", value: "https://www.crefia.or.kr" },
   { id: "act_card_crefia_bulk", breachTypeId: "card_payment_leak", providerId: "crefia", priority: 2, title: "여러 카드 동시 분실 시 통합 신고", description: "카드 한 곳에 신고해도 다른 회사에 전파될 수 있어요.", actionType: "copy", value: "https://customer.crefia.or.kr" },
 
   { id: "act_telecom_msafer_block", breachTypeId: "telecom_personal_info_leak", providerId: "msafer", priority: 1, title: "명의도용 가입제한 신청", description: "새 휴대폰 회선이 내 명의로 개통되는 걸 먼저 막으세요.", actionType: "copy", value: "https://www.msafer.or.kr" },

@@ -90,7 +90,9 @@ export class AnalyzeService {
           : null,
       safetyFlag: null,
       actions,
-      aiMessage: `${candidates[0]?.nameKr ?? "개인정보 유출"} 상황으로 보여요. 아래 순서대로 바로 진행해 주세요.`,
+      aiMessage: needsProvider && !hasProviderMatch
+        ? `${candidates[0]?.nameKr ?? "개인정보 유출"} 상황이에요. 어떤 카드사·서비스인지 알려주시면 해당 연락처로 바로 연결해드릴게요. 우선 아래 조치부터 진행하세요.`
+        : `${candidates[0]?.nameKr ?? "개인정보 유출"} 상황으로 보여요. 아래 순서대로 바로 진행해 주세요.`,
       source: "local",
     };
   }
