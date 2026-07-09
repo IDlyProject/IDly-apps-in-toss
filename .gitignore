@@ -9,3 +9,15 @@ dist-server/
 !.env.example
 server/storage/*.json
 !server/storage/.gitkeep
+
+# macOS
+.DS_Store
+
+# dev/test output
+output/
+screenshot_*.png
+thumbnail_*.png
+
+# Claude working context
+docs/skills/
+CLAUDE.md
