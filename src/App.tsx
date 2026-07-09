@@ -81,23 +81,32 @@ function App() {
   }, [chatEntries]);
 
   async function initUserId() {
-    const result = await getAnonymousKey();
-    if (result != null && result !== "INVALID_CATEGORY" && result !== "ERROR" && result.type === "HASH") {
-      setUserId(result.hash);
-    } else {
-      setUserId("local-demo");
+    try {
+      const result = await getAnonymousKey();
+      if (result != null && result !== "INVALID_CATEGORY" && result !== "ERROR" && result.type === "HASH") {
+        setUserId(result.hash);
+        return;
+      }
+    } catch {
+      // 토스 앱 외부(로컬 dev 등)에서는 fallback 사용
     }
+    setUserId("local-demo");
   }
 
   async function loadInitialData(uid: string) {
-    try {
-      const [types, logs] = await Promise.all([getBreachTypes(), getMyActions(uid)]);
-      setBreachTypes(types);
-      setStatusLogs(logs);
-      setActionStatuses(Object.fromEntries(logs.map((log) => [log.actionItemId, log.status])));
-    } catch (error) {
-      toast.openToast(getErrorMessage(error));
-    }
+    // 유형 목록과 로그를 독립적으로 로드 — DB 실패가 카드 선택에 영향 안 주도록
+    void getBreachTypes()
+      .then(setBreachTypes)
+      .catch((error) => toast.openToast(getErrorMessage(error)));
+
+    void getMyActions(uid)
+      .then((logs) => {
+        setStatusLogs(logs);
+        setActionStatuses(Object.fromEntries(logs.map((log) => [log.actionItemId, log.status])));
+      })
+      .catch(() => {
+        // 로그 로드 실패해도 카드 선택·분석은 정상 동작
+      });
   }
 
   async function refreshStatusLogs() {
