@@ -3,9 +3,9 @@ import { defineConfig } from "@apps-in-toss/web-framework/config";
 export default defineConfig({
   appName: "breach-response",
   brand: {
-    displayName: "정보유출·해킹 대응",
+    displayName: "유출·해킹 응급실",
     primaryColor: "#3b6cff",
-    icon: "", // 화면에 노출될 앱의 아이콘 이미지 주소로 바꿔주세요.
+    icon: "https://cnatfppqjgqygdefbufn.supabase.co/storage/v1/object/public/assets/idly_icon_navy_square_600x600.png",
   },
   web: {
     host: "localhost",

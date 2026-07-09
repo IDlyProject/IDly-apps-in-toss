@@ -112,15 +112,6 @@ export async function setActionStatus(input: {
   return parseResponse(response);
 }
 
-export async function tossLogin(authorizationCode: string, referrer: string): Promise<{ userId: string }> {
-  const response = await fetch(`${API_BASE_URL}/auth/toss/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ authorizationCode, referrer }),
-  });
-  return parseResponse(response);
-}
-
 async function parseResponse<T>(response: Response): Promise<T> {
   const payload = await response.json().catch(() => null);
 

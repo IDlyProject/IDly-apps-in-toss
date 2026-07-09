@@ -1,4 +1,5 @@
-import { Button, Top } from "@toss/tds-mobile";
+import { getAnonymousKey } from "@apps-in-toss/web-framework";
+import { Button, SegmentedControl, Top, useToast } from "@toss/tds-mobile";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -27,36 +28,35 @@ const goldenTimeLabels: Record<BreachType["goldenTime"], string> = {
   registration: "등록형 대응",
 };
 
-const USER_ID = "local-demo";
+const WELCOME_ENTRY: ChatEntry = {
+  id: "welcome",
+  role: "assistant",
+  result: {
+    detectedTypes: [],
+    confidence: "medium",
+    clarifyingQuestion: null,
+    safetyFlag: null,
+    actions: [],
+    aiMessage:
+      "생성형 AI를 활용해 개인정보 유출 상황을 분석하고 대응 방법을 안내해요. AI가 생성한 결과는 참고용이며, 중요한 결정 전에 공식 기관에 확인해 주세요.\n\n유출 문자나 알림 캡처를 올리거나, 지금 상황을 적어주세요. 바로 실행할 수 있는 대응카드로 정리해드릴게요.",
+    source: "local",
+  },
+};
 
 function App() {
+  const toast = useToast();
+
   const [view, setView] = useState<View>("chat");
+  const [userId, setUserId] = useState<string | null>(null);
   const [breachTypes, setBreachTypes] = useState<BreachType[]>([]);
   const [selectedTypeId, setSelectedTypeId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [image, setImage] = useState<File | null>(null);
   const [consent, setConsent] = useState(false);
-  const [chatEntries, setChatEntries] = useState<ChatEntry[]>([
-    {
-      id: "welcome",
-      role: "assistant",
-      result: {
-        detectedTypes: [],
-        confidence: "medium",
-        clarifyingQuestion: null,
-        safetyFlag: null,
-        actions: [],
-        aiMessage:
-          "생성형 AI를 활용해 개인정보 유출 상황을 분석하고 대응 방법을 안내해요. AI가 생성한 결과는 참고용이며, 중요한 결정 전에 공식 기관에 확인해 주세요.\n\n유출 문자나 알림 캡처를 올리거나, 지금 상황을 적어주세요. 바로 실행할 수 있는 대응카드로 정리해드릴게요.",
-        source: "local",
-      },
-    },
-  ]);
+  const [chatEntries, setChatEntries] = useState<ChatEntry[]>([WELCOME_ENTRY]);
   const [actionStatuses, setActionStatuses] = useState<Record<string, ActionStatus>>({});
   const [statusLogs, setStatusLogs] = useState<UserActionLog[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -65,48 +65,49 @@ function App() {
     [breachTypes, selectedTypeId],
   );
 
-  // TODO: 사업자등록 후 앱인토스 콘솔에서 토스 로그인 심사 통과하면 아래 주석 해제
-  // useEffect(() => { void handleTossLogin(); }, []);
-  // async function handleTossLogin() {
-  //   setIsLoggingIn(true);
-  //   try {
-  //     const { authorizationCode, referrer } = await appLogin();
-  //     const { userId: resolvedUserId } = await tossLogin(authorizationCode, referrer);
-  //     setUserId(resolvedUserId);
-  //     await loadInitialData(resolvedUserId);
-  //   } catch (error) {
-  //     setErrorMessage(getErrorMessage(error));
-  //   } finally {
-  //     setIsLoggingIn(false);
-  //   }
-  // }
+  useEffect(() => {
+    void initUserId();
+  }, []);
 
   useEffect(() => {
-    void loadInitialData();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (userId != null) {
+      void loadInitialData(userId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatEntries]);
 
-  async function loadInitialData() {
+  async function initUserId() {
+    const result = await getAnonymousKey();
+    if (result != null && result !== "INVALID_CATEGORY" && result !== "ERROR" && result.type === "HASH") {
+      setUserId(result.hash);
+    } else {
+      setUserId("local-demo");
+    }
+  }
+
+  async function loadInitialData(uid: string) {
     try {
-      const [types, logs] = await Promise.all([getBreachTypes(), getMyActions(USER_ID)]);
+      const [types, logs] = await Promise.all([getBreachTypes(), getMyActions(uid)]);
       setBreachTypes(types);
       setStatusLogs(logs);
-      setActionStatuses(
-        Object.fromEntries(logs.map((log) => [log.actionItemId, log.status])),
-      );
+      setActionStatuses(Object.fromEntries(logs.map((log) => [log.actionItemId, log.status])));
     } catch (error) {
-      setErrorMessage(getErrorMessage(error));
+      toast.openToast(getErrorMessage(error));
     }
   }
 
   async function refreshStatusLogs() {
-    const logs = await getMyActions(USER_ID);
-    setStatusLogs(logs);
-    setActionStatuses(Object.fromEntries(logs.map((log) => [log.actionItemId, log.status])));
+    try {
+      const logs = await getMyActions(userId ?? "local-demo");
+      setStatusLogs(logs);
+      setActionStatuses(Object.fromEntries(logs.map((log) => [log.actionItemId, log.status])));
+    } catch (error) {
+      toast.openToast(getErrorMessage(error));
+    }
   }
 
   async function handleAnalyze() {
@@ -115,17 +116,15 @@ function App() {
     }
 
     if (message.trim().length === 0 && image == null && selectedTypeId == null) {
-      setErrorMessage("상황 설명, 캡처 이미지, 직접 선택 중 하나는 필요해요.");
+      toast.openToast("상황 설명, 캡처 이미지, 직접 선택 중 하나는 필요해요.");
       return;
     }
 
     if (image != null && !consent) {
-      setErrorMessage("이미지 분석을 위해 외부 AI 전송 동의가 필요해요.");
+      toast.openToast("이미지 분석을 위해 외부 AI 전송 동의가 필요해요.");
       return;
     }
 
-    setErrorMessage(null);
-    setSuccessMessage(null);
     setIsSubmitting(true);
 
     const userText = [
@@ -138,11 +137,7 @@ function App() {
 
     setChatEntries((entries) => [
       ...entries,
-      {
-        id: crypto.randomUUID(),
-        role: "user",
-        text: userText,
-      },
+      { id: crypto.randomUUID(), role: "user", text: userText },
     ]);
 
     try {
@@ -151,16 +146,12 @@ function App() {
         image,
         selectedTypeId,
         consentToExternalAI: consent,
-        userId: USER_ID,
+        userId: userId ?? "local-demo",
       });
 
       setChatEntries((entries) => [
         ...entries,
-        {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          result,
-        },
+        { id: crypto.randomUUID(), role: "assistant", result },
       ]);
       setMessage("");
       setImage(null);
@@ -170,7 +161,7 @@ function App() {
         fileInputRef.current.value = "";
       }
     } catch (error) {
-      setErrorMessage(getErrorMessage(error));
+      toast.openToast(getErrorMessage(error));
     } finally {
       setIsSubmitting(false);
     }
@@ -183,11 +174,11 @@ function App() {
     setActionStatuses((statuses) => ({ ...statuses, [action.id]: nextStatus }));
 
     try {
-      await setActionStatus({ actionId: action.id, status: nextStatus, userId: USER_ID });
+      await setActionStatus({ actionId: action.id, status: nextStatus, userId: userId ?? "local-demo" });
       await refreshStatusLogs();
     } catch (error) {
       setActionStatuses((statuses) => ({ ...statuses, [action.id]: currentStatus }));
-      setErrorMessage(getErrorMessage(error));
+      toast.openToast(getErrorMessage(error));
     }
   }
 
@@ -199,10 +190,18 @@ function App() {
 
     try {
       await navigator.clipboard.writeText(action.value);
-      setSuccessMessage("복사했어요. 필요한 곳에 붙여넣어 주세요.");
+      toast.openToast("복사했어요. 필요한 곳에 붙여넣어 주세요.");
     } catch {
-      setErrorMessage(action.value);
+      toast.openToast(action.value);
     }
+  }
+
+  function handleReset() {
+    setChatEntries([WELCOME_ENTRY]);
+    setMessage("");
+    setImage(null);
+    setConsent(false);
+    setSelectedTypeId(null);
   }
 
   return (
@@ -211,25 +210,12 @@ function App() {
         title={<Top.TitleParagraph size={22}>{view === "chat" ? "유출·해킹 대응" : "내 대응 현황"}</Top.TitleParagraph>}
       />
 
-      <nav className="segmented-tabs" aria-label="화면 선택">
-        <button
-          className={view === "chat" ? "tab-button active" : "tab-button"}
-          type="button"
-          onClick={() => setView("chat")}
-        >
-          대응 시작
-        </button>
-        <button
-          className={view === "status" ? "tab-button active" : "tab-button"}
-          type="button"
-          onClick={() => setView("status")}
-        >
-          내 대응 현황
-        </button>
-      </nav>
-
-      {errorMessage != null && <div className="notice error">{errorMessage}</div>}
-      {successMessage != null && <div className="notice success">{successMessage}</div>}
+      <div style={{ margin: "14px 16px 12px" }}>
+        <SegmentedControl value={view} onChange={(v) => setView(v as View)}>
+          <SegmentedControl.Item value="chat">대응 시작</SegmentedControl.Item>
+          <SegmentedControl.Item value="status">내 대응 현황</SegmentedControl.Item>
+        </SegmentedControl>
+      </div>
 
       {view === "chat" ? (
         <>
@@ -260,36 +246,11 @@ function App() {
                 rows={2}
               />
               <div className="followup-row">
-                <button
-                  className="secondary-button"
-                  type="button"
-                  onClick={() => {
-                    setChatEntries([
-                      {
-                        id: "welcome",
-                        role: "assistant",
-                        result: {
-                          detectedTypes: [],
-                          confidence: "medium",
-                          clarifyingQuestion: null,
-                          safetyFlag: null,
-                          actions: [],
-                          aiMessage:
-                            "생성형 AI를 활용해 개인정보 유출 상황을 분석하고 대응 방법을 안내해요. AI가 생성한 결과는 참고용이며, 중요한 결정 전에 공식 기관에 확인해 주세요.\n\n유출 문자나 알림 캡처를 올리거나, 지금 상황을 적어주세요. 바로 실행할 수 있는 대응카드로 정리해드릴게요.",
-                          source: "local",
-                        },
-                      },
-                    ]);
-                    setMessage("");
-                    setImage(null);
-                    setConsent(false);
-                    setSelectedTypeId(null);
-                  }}
-                >
+                <Button variant="weak" onClick={handleReset}>
                   새로 시작
-                </button>
+                </Button>
                 <Button
-                  className="primary-cta followup-send"
+                  className="followup-send"
                   disabled={isSubmitting || message.trim().length === 0}
                   loading={isSubmitting}
                   onClick={handleAnalyze}
@@ -389,9 +350,6 @@ function App() {
               >
                 대응카드 만들기
               </Button>
-
-              {/* TODO: 앱인토스 광고 심사 통과 후 활성화 */}
-              {/* <div className="ad-allowed-strip">유형선택 단계 · 배너 광고 허용 구간</div> */}
             </section>
           )}
         </>
@@ -456,10 +414,6 @@ function AssistantBubble({
           <p className="clarifying-question">{result.clarifyingQuestion}</p>
         </div>
       )}
-      {/* TODO: 앱인토스 광고 심사 통과 후 활성화 */}
-      {/* {result.actions.length > 0 && result.safetyFlag == null && (
-        <div className="no-ad-strip">이 화면 전체 · 광고 배치 금지 구간</div>
-      )} */}
     </div>
   );
 }
@@ -489,12 +443,16 @@ function ActionCard({
         </div>
       </div>
       <div className="action-controls">
-        <button className="secondary-button" type="button" onClick={() => void onActionClick(action)}>
+        <Button variant="weak" size="small" onClick={() => void onActionClick(action)}>
           {action.actionType === "tel" ? "전화 걸기" : "링크 복사"}
-        </button>
-        <button className="check-button" type="button" onClick={() => void onToggleAction(action)}>
+        </Button>
+        <Button
+          size="small"
+          variant={status === "done" ? "weak" : "primary"}
+          onClick={() => void onToggleAction(action)}
+        >
           {status === "done" ? "완료됨" : "완료"}
-        </button>
+        </Button>
       </div>
     </article>
   );
@@ -511,9 +469,9 @@ function ReferralCard({
     <article className="referral-card">
       <h3>{referral.title}</h3>
       <p>{referral.description}</p>
-      <button className="secondary-button" type="button" onClick={() => void onActionClick(referral)}>
+      <Button variant="weak" style={{ width: "100%", marginTop: "10px" }} onClick={() => void onActionClick(referral)}>
         전화
-      </button>
+      </Button>
     </article>
   );
 }
@@ -541,9 +499,9 @@ function StatusView({
             <span className="tab inactive">완료 ({logs.filter((log) => log.status === "done").length})</span>
           </div>
         </div>
-        <button className="secondary-button" type="button" onClick={() => void onRefresh()}>
+        <Button variant="weak" size="small" onClick={() => void onRefresh()}>
           새로고침
-        </button>
+        </Button>
       </div>
 
       {sortedLogs.length === 0 ? (
@@ -569,10 +527,6 @@ function StatusView({
           ))}
         </div>
       )}
-
-      {/* TODO: 앱인토스 광고 심사 통과 후 활성화 */}
-      {/* <div className="push-note">"카드 지급정지 아직 안 하셨어요" 리마인드 (기능성 메시지)</div> */}
-      {/* <div className="banner-slot">AD · 배너 광고 슬롯 (허용 구간)</div> */}
     </section>
   );
 }

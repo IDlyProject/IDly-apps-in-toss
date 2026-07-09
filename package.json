@@ -1,5 +1,5 @@
 {
-  "name": "idly-breach-hub",
+  "name": "breach-response",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -24,14 +24,16 @@
     "@toss/tds-colors": "latest",
     "@toss/tds-mobile": "latest",
     "@toss/tds-mobile-ait": "latest",
-    "multer": "^2.2.0",
     "@types/multer": "^2.2.0",
     "@types/node": "^26.1.0",
-    "typescript": "~5.7.2",
+    "@types/pg": "^8.20.0",
+    "multer": "^2.2.0",
+    "pg": "^8.22.0",
     "react": "^18.0.0",
     "react-dom": "^18.0.0",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.2"
+    "rxjs": "^7.8.2",
+    "typescript": "~5.7.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.21.0",

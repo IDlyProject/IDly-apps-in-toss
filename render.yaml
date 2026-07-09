@@ -16,7 +16,5 @@ services:
       # 아래 값들은 Render 대시보드에서 직접 입력하세요
       - key: UPSTAGE_API_KEY
         sync: false
-      - key: TOSS_CLIENT_ID
-        sync: false
-      - key: TOSS_CLIENT_SECRET
+      - key: DATABASE_URL
         sync: false

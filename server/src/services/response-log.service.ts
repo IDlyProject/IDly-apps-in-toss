@@ -1,6 +1,6 @@
-import { Injectable } from "@nestjs/common";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { Injectable, OnModuleDestroy } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { Pool } from "pg";
 
 import type { ActionStatus, UserResponseLog } from "../../domain/types.js";
 import { ActionsService } from "./actions.service.js";
@@ -12,65 +12,81 @@ interface SetStatusInput {
 }
 
 @Injectable()
-export class ResponseLogService {
-  private readonly storagePath = join(process.cwd(), "server", "storage", "user-response-logs.json");
+export class ResponseLogService implements OnModuleDestroy {
+  private readonly pool: Pool;
 
-  constructor(private readonly actionsService: ActionsService) {}
+  constructor(
+    private readonly actionsService: ActionsService,
+    config: ConfigService,
+  ) {
+    this.pool = new Pool({
+      connectionString: config.get<string>("DATABASE_URL"),
+      ssl: { rejectUnauthorized: false },
+    });
+  }
+
+  async onModuleDestroy() {
+    await this.pool.end();
+  }
 
   async listByUser(userId: string) {
-    const logs = await this.readLogs();
-    return logs
-      .filter((log) => log.userId === userId)
-      .map((log) => ({
-        ...log,
-        action: this.actionsService.getActionById(log.actionItemId),
-      }));
+    const { rows } = await this.pool.query<{
+      user_id: string;
+      action_item_id: string;
+      status: string;
+      created_at: string;
+      completed_at: string | null;
+    }>(
+      `SELECT user_id, action_item_id, status, created_at, completed_at
+       FROM user_response_logs
+       WHERE user_id = $1`,
+      [userId],
+    );
+
+    return rows.map((row) => ({
+      userId: row.user_id,
+      actionItemId: row.action_item_id,
+      status: row.status as ActionStatus,
+      createdAt: row.created_at,
+      completedAt: row.completed_at,
+      action: this.actionsService.getActionById(row.action_item_id),
+    }));
   }
 
   async setStatus(input: SetStatusInput): Promise<UserResponseLog> {
     this.actionsService.getActionById(input.actionItemId);
 
-    const logs = await this.readLogs();
     const now = new Date().toISOString();
-    const existing = logs.find(
-      (log) => log.userId === input.userId && log.actionItemId === input.actionItemId,
+
+    const { rows } = await this.pool.query<{
+      user_id: string;
+      action_item_id: string;
+      status: string;
+      created_at: string;
+      completed_at: string | null;
+    }>(
+      `INSERT INTO user_response_logs (user_id, action_item_id, status, created_at, completed_at)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (user_id, action_item_id) DO UPDATE
+         SET status = EXCLUDED.status,
+             completed_at = EXCLUDED.completed_at
+       RETURNING *`,
+      [
+        input.userId,
+        input.actionItemId,
+        input.status,
+        now,
+        input.status === "done" ? now : null,
+      ],
     );
 
-    if (existing != null) {
-      existing.status = input.status;
-      existing.completedAt = input.status === "done" ? now : null;
-      await this.writeLogs(logs);
-      return existing;
-    }
-
-    const next: UserResponseLog = {
-      userId: input.userId,
-      actionItemId: input.actionItemId,
-      status: input.status,
-      createdAt: now,
-      completedAt: input.status === "done" ? now : null,
+    const row = rows[0]!;
+    return {
+      userId: row.user_id,
+      actionItemId: row.action_item_id,
+      status: row.status as ActionStatus,
+      createdAt: row.created_at,
+      completedAt: row.completed_at,
     };
-
-    logs.push(next);
-    await this.writeLogs(logs);
-    return next;
-  }
-
-  private async readLogs(): Promise<UserResponseLog[]> {
-    try {
-      const raw = await readFile(this.storagePath, "utf8");
-      return JSON.parse(raw) as UserResponseLog[];
-    } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-        return [];
-      }
-      throw error;
-    }
-  }
-
-  private async writeLogs(logs: UserResponseLog[]): Promise<void> {
-    await mkdir(dirname(this.storagePath), { recursive: true });
-    await writeFile(this.storagePath, `${JSON.stringify(logs, null, 2)}\n`, "utf8");
   }
 }
-

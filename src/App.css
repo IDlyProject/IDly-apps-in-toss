@@ -36,53 +36,6 @@ textarea {
 }
 
 
-.segmented-tabs {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px;
-  margin: 14px 16px 12px;
-  padding: 4px;
-  border-radius: 14px;
-  background: #e8edf4;
-}
-
-.tab-button {
-  min-height: 36px;
-  border: 0;
-  border-radius: 11px;
-  background: transparent;
-  color: #6b7684;
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.tab-button.active {
-  background: #fff;
-  color: var(--ink);
-  box-shadow: 0 1px 5px rgba(25, 31, 40, 0.1);
-}
-
-.notice {
-  margin: 0 16px 12px;
-  padding: 11px 13px;
-  border-radius: 14px;
-  font-size: 13px;
-  font-weight: 800;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-}
-
-.notice.error {
-  border: 1px solid var(--danger);
-  background: var(--danger-soft);
-  color: var(--danger);
-}
-
-.notice.success {
-  border: 1px solid var(--success);
-  background: var(--success-soft);
-  color: var(--success);
-}
 
 .input-panel,
 .status-panel {
@@ -247,7 +200,7 @@ textarea {
   width: 100%;
   min-height: 78px;
   box-sizing: border-box;
-  resize: vertical;
+  resize: none;
   border: 1px solid #d1d6db;
   border-radius: 14px;
   padding: 12px;
@@ -524,27 +477,6 @@ textarea {
   margin-top: 10px;
 }
 
-.secondary-button,
-.check-button {
-  min-height: 34px;
-  border-radius: 12px;
-  padding: 0 10px;
-  font-size: 13px;
-  font-weight: 800;
-  white-space: nowrap;
-}
-
-.secondary-button {
-  border: 0;
-  background: #edf1f6;
-  color: #4e5968;
-}
-
-.check-button {
-  border: 0;
-  background: var(--accent);
-  color: #fff;
-}
 
 .referral-card {
   padding: 12px;
