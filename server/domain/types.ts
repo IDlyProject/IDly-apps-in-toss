@@ -55,7 +55,6 @@ export interface AnalyzeRequest {
   text?: string;
   selectedTypeId?: string;
   consentToExternalAI?: boolean;
-  userId?: string;
 }
 
 export interface AnalyzeResult {
@@ -79,10 +78,8 @@ export interface ModelAnalyzeResult {
 }
 
 export interface UserResponseLog {
-  userId: string;
   actionItemId: string;
   status: ActionStatus;
   createdAt: string;
   completedAt: string | null;
 }
-

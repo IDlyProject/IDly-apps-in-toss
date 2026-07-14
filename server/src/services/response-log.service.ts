@@ -44,7 +44,6 @@ export class ResponseLogService implements OnModuleDestroy {
     );
 
     return rows.map((row) => ({
-      userId: row.user_id,
       actionItemId: row.action_item_id,
       status: row.status as ActionStatus,
       createdAt: row.created_at,
@@ -82,7 +81,6 @@ export class ResponseLogService implements OnModuleDestroy {
 
     const row = rows[0]!;
     return {
-      userId: row.user_id,
       actionItemId: row.action_item_id,
       status: row.status as ActionStatus,
       createdAt: row.created_at,

@@ -29,10 +29,88 @@ textarea {
   --shadow: 0 8px 24px rgba(16, 24, 40, 0.06);
 }
 
+.simple-tabs {
+  display: flex;
+  margin: 14px 16px 12px;
+  border-radius: 10px;
+  background: #e5e8eb;
+  padding: 2px;
+  gap: 2px;
+}
+
+.simple-tab {
+  flex: 1;
+  padding: 8px 0;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--sub);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.simple-tab.active {
+  background: #fff;
+  color: var(--ink);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+}
+
+.app-button {
+  min-height: 40px;
+  border: none;
+  border-radius: 12px;
+  padding: 0 14px;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.app-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.app-button-primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.app-button-weak {
+  background: #eef2f7;
+  color: var(--ink);
+}
+
+.app-button-small {
+  min-height: 34px;
+  border-radius: 10px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
 .app-shell {
   min-height: 100vh;
   background: #f2f4f6;
   color: var(--ink);
+}
+
+.simple-toast {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  padding: 12px 20px;
+  border-radius: 99px;
+  background: rgba(25, 31, 40, 0.88);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  max-width: calc(100vw - 48px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
 }
 
 
@@ -483,6 +561,11 @@ textarea {
 }
 
 .referral-card .secondary-button {
+  width: 100%;
+  margin-top: 10px;
+}
+
+.referral-action {
   width: 100%;
   margin-top: 10px;
 }

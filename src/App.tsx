@@ -1,6 +1,5 @@
-import { getAnonymousKey } from "@apps-in-toss/web-framework";
-import { Button, SegmentedControl, Top, useToast } from "@toss/tds-mobile";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Top } from "@toss/tds-mobile";
+import { Component, type ErrorInfo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   type ActionItem,
@@ -28,6 +27,9 @@ const goldenTimeLabels: Record<BreachType["goldenTime"], string> = {
   registration: "등록형 대응",
 };
 
+const MAX_TEXT_LENGTH = 2_000;
+const MAX_IMAGE_SIZE = 6 * 1024 * 1024;
+
 const WELCOME_ENTRY: ChatEntry = {
   id: "welcome",
   role: "assistant",
@@ -44,10 +46,15 @@ const WELCOME_ENTRY: ChatEntry = {
 };
 
 function App() {
-  const toast = useToast();
-
   const [view, setView] = useState<View>("chat");
-  const [userId, setUserId] = useState<string | null>(null);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showToast = useCallback((msg: string) => {
+    setToastMsg(msg);
+    if (toastTimer.current != null) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToastMsg(null), 3000);
+  }, []);
   const [breachTypes, setBreachTypes] = useState<BreachType[]>([]);
   const [selectedTypeId, setSelectedTypeId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
@@ -64,42 +71,24 @@ function App() {
     () => breachTypes.find((type) => type.id === selectedTypeId) ?? null,
     [breachTypes, selectedTypeId],
   );
+  const hasExternalAiInput = message.trim().length > 0 || image != null;
 
   useEffect(() => {
-    void initUserId();
-  }, []);
-
-  useEffect(() => {
-    if (userId != null) {
-      void loadInitialData(userId);
-    }
+    void loadInitialData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId]);
+  }, []);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatEntries]);
 
-  async function initUserId() {
-    try {
-      const result = await getAnonymousKey();
-      if (result != null && result !== "INVALID_CATEGORY" && result !== "ERROR" && result.type === "HASH") {
-        setUserId(result.hash);
-        return;
-      }
-    } catch {
-      // 토스 앱 외부(로컬 dev 등)에서는 fallback 사용
-    }
-    setUserId("local-demo");
-  }
-
-  async function loadInitialData(uid: string) {
+  async function loadInitialData() {
     // 유형 목록과 로그를 독립적으로 로드 — DB 실패가 카드 선택에 영향 안 주도록
     void getBreachTypes()
       .then(setBreachTypes)
-      .catch((error) => toast.openToast(getErrorMessage(error)));
+      .catch((error) => showToast(getErrorMessage(error)));
 
-    void getMyActions(uid)
+    void getMyActions()
       .then((logs) => {
         setStatusLogs(logs);
         setActionStatuses(Object.fromEntries(logs.map((log) => [log.actionItemId, log.status])));
@@ -111,11 +100,11 @@ function App() {
 
   async function refreshStatusLogs() {
     try {
-      const logs = await getMyActions(userId ?? "local-demo");
+      const logs = await getMyActions();
       setStatusLogs(logs);
       setActionStatuses(Object.fromEntries(logs.map((log) => [log.actionItemId, log.status])));
     } catch (error) {
-      toast.openToast(getErrorMessage(error));
+      showToast(getErrorMessage(error));
     }
   }
 
@@ -125,12 +114,17 @@ function App() {
     }
 
     if (message.trim().length === 0 && image == null && selectedTypeId == null) {
-      toast.openToast("상황 설명, 캡처 이미지, 직접 선택 중 하나는 필요해요.");
+      showToast("상황 설명, 캡처 이미지, 직접 선택 중 하나는 필요해요.");
+      return;
+    }
+
+    if (message.trim().length > MAX_TEXT_LENGTH) {
+      showToast(`상황 설명은 ${MAX_TEXT_LENGTH}자 이내로 입력해 주세요.`);
       return;
     }
 
     if (image != null && !consent) {
-      toast.openToast("이미지 분석을 위해 외부 AI 전송 동의가 필요해요.");
+      showToast("이미지 분석을 위해 외부 AI 전송 동의가 필요해요.");
       return;
     }
 
@@ -155,7 +149,6 @@ function App() {
         image,
         selectedTypeId,
         consentToExternalAI: consent,
-        userId: userId ?? "local-demo",
       });
 
       setChatEntries((entries) => [
@@ -170,7 +163,7 @@ function App() {
         fileInputRef.current.value = "";
       }
     } catch (error) {
-      toast.openToast(getErrorMessage(error));
+      showToast(getErrorMessage(error));
     } finally {
       setIsSubmitting(false);
     }
@@ -183,11 +176,11 @@ function App() {
     setActionStatuses((statuses) => ({ ...statuses, [action.id]: nextStatus }));
 
     try {
-      await setActionStatus({ actionId: action.id, status: nextStatus, userId: userId ?? "local-demo" });
+      await setActionStatus({ actionId: action.id, status: nextStatus });
       await refreshStatusLogs();
     } catch (error) {
       setActionStatuses((statuses) => ({ ...statuses, [action.id]: currentStatus }));
-      toast.openToast(getErrorMessage(error));
+      showToast(getErrorMessage(error));
     }
   }
 
@@ -199,9 +192,9 @@ function App() {
 
     try {
       await navigator.clipboard.writeText(action.value);
-      toast.openToast("복사했어요. 필요한 곳에 붙여넣어 주세요.");
+      showToast("복사했어요. 필요한 곳에 붙여넣어 주세요.");
     } catch {
-      toast.openToast(action.value);
+      showToast(action.value);
     }
   }
 
@@ -213,17 +206,28 @@ function App() {
     setSelectedTypeId(null);
   }
 
+  function handleImageChange(file: File | null) {
+    if (file != null && file.size > MAX_IMAGE_SIZE) {
+      showToast("이미지는 6MB 이하만 업로드할 수 있어요.");
+      setImage(null);
+      if (fileInputRef.current != null) {
+        fileInputRef.current.value = "";
+      }
+      return;
+    }
+    setImage(file);
+  }
+
   return (
     <main className="app-shell">
+      {toastMsg != null && <div className="simple-toast">{toastMsg}</div>}
       <Top
         title={<Top.TitleParagraph size={22}>{view === "chat" ? "유출·해킹 대응" : "내 대응 현황"}</Top.TitleParagraph>}
       />
 
-      <div style={{ margin: "14px 16px 12px" }}>
-        <SegmentedControl value={view} onChange={(v) => setView(v as View)}>
-          <SegmentedControl.Item value="chat">대응 시작</SegmentedControl.Item>
-          <SegmentedControl.Item value="status">내 대응 현황</SegmentedControl.Item>
-        </SegmentedControl>
+      <div className="simple-tabs">
+        <button className={view === "chat" ? "simple-tab active" : "simple-tab"} onClick={() => setView("chat")}>대응 시작</button>
+        <button className={view === "status" ? "simple-tab active" : "simple-tab"} onClick={() => setView("status")}>내 대응 현황</button>
       </div>
 
       {view === "chat" ? (
@@ -251,21 +255,25 @@ function App() {
                 className="incident-textarea"
                 value={message}
                 onChange={(event) => setMessage(event.target.value)}
+                maxLength={MAX_TEXT_LENGTH}
                 placeholder="카드사명이나 추가 상황을 알려주세요."
                 rows={2}
               />
+              {hasExternalAiInput && (
+                <ExternalAiConsent checked={consent} imageAttached={image != null} onChange={setConsent} />
+              )}
               <div className="followup-row">
-                <Button variant="weak" onClick={handleReset}>
+                <button className="app-button app-button-weak" type="button" onClick={handleReset}>
                   새로 시작
-                </Button>
-                <Button
-                  className="followup-send"
+                </button>
+                <button
+                  className="app-button app-button-primary followup-send"
+                  type="button"
                   disabled={isSubmitting || message.trim().length === 0}
-                  loading={isSubmitting}
                   onClick={handleAnalyze}
                 >
-                  전송
-                </Button>
+                  {isSubmitting ? "분석 중" : "전송"}
+                </button>
               </div>
             </section>
           ) : (
@@ -291,26 +299,13 @@ function App() {
                   className="file-input"
                   type="file"
                   accept="image/*"
-                  onChange={(event) => setImage(event.target.files?.[0] ?? null)}
+                  onChange={(event) => handleImageChange(event.target.files?.[0] ?? null)}
                 />
                 {image != null && <span className="file-name">{image.name}</span>}
               </div>
 
-              {image != null && (
-                <label className="consent-box">
-                  <input
-                    type="checkbox"
-                    checked={consent}
-                    onChange={(event) => setConsent(event.target.checked)}
-                  />
-                  <span>
-                    <b>[필수] 이미지 AI 분석 동의</b>
-                    <br />
-                    업로드한 이미지는 AI 분석을 위해 외부 AI 서비스(업스테이지)로
-                    전송되며, 최대 30일간 보관될 수 있어요. 카드번호·주민번호가 꼭
-                    필요한 경우가 아니라면 가려서 올려주세요.
-                  </span>
-                </label>
+              {hasExternalAiInput && (
+                <ExternalAiConsent checked={consent} imageAttached={image != null} onChange={setConsent} />
               )}
 
               <div className="or-divider">
@@ -328,6 +323,7 @@ function App() {
                   className="incident-textarea"
                   value={message}
                   onChange={(event) => setMessage(event.target.value)}
+                  maxLength={MAX_TEXT_LENGTH}
                   placeholder="예: 신한카드에서 카드정보 유출 안내 문자를 받았어요."
                   rows={4}
                 />
@@ -351,14 +347,14 @@ function App() {
                 ))}
               </div>
 
-              <Button
-                className="primary-cta"
+              <button
+                className="app-button app-button-primary primary-cta"
+                type="button"
                 disabled={isSubmitting}
-                loading={isSubmitting}
                 onClick={handleAnalyze}
               >
-                대응카드 만들기
-              </Button>
+                {isSubmitting ? "분석 중" : "대응카드 만들기"}
+              </button>
             </section>
           )}
         </>
@@ -371,6 +367,33 @@ function App() {
 
 function UserBubble({ text }: { text: string }) {
   return <div className="chat-bubble user-bubble">{text}</div>;
+}
+
+function ExternalAiConsent({
+  checked,
+  imageAttached,
+  onChange,
+}: {
+  checked: boolean;
+  imageAttached: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="consent-box">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span>
+        <b>{imageAttached ? "[필수] 외부 AI 분석 동의" : "[선택] 외부 AI 분석 동의"}</b>
+        <br />
+        동의하면 입력한 내용{imageAttached ? "과 이미지" : ""}이 AI 분석을 위해
+        외부 AI 서비스(업스테이지)로 전송될 수 있어요. 동의하지 않으면 기기 밖
+        외부 AI 호출 없이 로컬 규칙으로만 분석해요.
+      </span>
+    </label>
+  );
 }
 
 function AssistantBubble({
@@ -452,16 +475,16 @@ function ActionCard({
         </div>
       </div>
       <div className="action-controls">
-        <Button variant="weak" size="small" onClick={() => void onActionClick(action)}>
+        <button className="app-button app-button-weak app-button-small" type="button" onClick={() => void onActionClick(action)}>
           {action.actionType === "tel" ? "전화 걸기" : "링크 복사"}
-        </Button>
-        <Button
-          size="small"
-          variant={status === "done" ? "weak" : "primary"}
+        </button>
+        <button
+          className={status === "done" ? "app-button app-button-weak app-button-small" : "app-button app-button-primary app-button-small"}
+          type="button"
           onClick={() => void onToggleAction(action)}
         >
           {status === "done" ? "완료됨" : "완료"}
-        </Button>
+        </button>
       </div>
     </article>
   );
@@ -478,9 +501,9 @@ function ReferralCard({
     <article className="referral-card">
       <h3>{referral.title}</h3>
       <p>{referral.description}</p>
-      <Button variant="weak" style={{ width: "100%", marginTop: "10px" }} onClick={() => void onActionClick(referral)}>
+      <button className="app-button app-button-weak referral-action" type="button" onClick={() => void onActionClick(referral)}>
         전화
-      </Button>
+      </button>
     </article>
   );
 }
@@ -508,9 +531,9 @@ function StatusView({
             <span className="tab inactive">완료 ({logs.filter((log) => log.status === "done").length})</span>
           </div>
         </div>
-        <Button variant="weak" size="small" onClick={() => void onRefresh()}>
+        <button className="app-button app-button-weak app-button-small" type="button" onClick={() => void onRefresh()}>
           새로고침
-        </Button>
+        </button>
       </div>
 
       {sortedLogs.length === 0 ? (
@@ -555,6 +578,32 @@ function formatDate(value: string | null): string {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+export class AppErrorBoundary extends Component<{ children: ReactNode }, { error: string | null }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error: unknown) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("[AppErrorBoundary]", error, info);
+  }
+
+  render() {
+    if (this.state.error != null) {
+      return (
+        <div style={{ padding: 24, color: "#f04452", fontSize: 14 }}>
+          <b>앱 오류:</b> {this.state.error}
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 export default App;

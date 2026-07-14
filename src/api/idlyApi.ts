@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_IDLY_API_BASE_URL ?? "http://127.0.0.1:3001";
+const API_BASE_URL = import.meta.env.VITE_IDLY_API_BASE_URL ?? "http://localhost:3001";
 
 export type ActionType = "tel" | "copy";
 export type ActionStatus = "pending" | "done";
@@ -43,7 +43,6 @@ export interface AnalyzeResult {
 }
 
 export interface UserActionLog {
-  userId: string;
   actionItemId: string;
   status: ActionStatus;
   createdAt: string;
@@ -51,13 +50,20 @@ export interface UserActionLog {
   action: ActionItem;
 }
 
+const sessionFetchOptions = {
+  credentials: "include",
+  headers: {
+    "X-IDLY-Client": "web",
+  },
+} satisfies RequestInit;
+
 export async function getBreachTypes(): Promise<BreachType[]> {
   const response = await fetch(`${API_BASE_URL}/breach-types`);
   return parseResponse(response);
 }
 
-export async function getMyActions(userId = "local-demo"): Promise<UserActionLog[]> {
-  const response = await fetch(`${API_BASE_URL}/me/actions?userId=${encodeURIComponent(userId)}`);
+export async function getMyActions(): Promise<UserActionLog[]> {
+  const response = await fetch(`${API_BASE_URL}/me/actions`, sessionFetchOptions);
   return parseResponse(response);
 }
 
@@ -66,7 +72,6 @@ export async function analyzeIncident(input: {
   image: File | null;
   selectedTypeId: string | null;
   consentToExternalAI: boolean;
-  userId?: string;
 }): Promise<AnalyzeResult> {
   const formData = new FormData();
 
@@ -83,7 +88,6 @@ export async function analyzeIncident(input: {
   }
 
   formData.append("consentToExternalAI", String(input.consentToExternalAI));
-  formData.append("userId", input.userId ?? "local-demo");
 
   const response = await fetch(`${API_BASE_URL}/chat/analyze`, {
     method: "POST",
@@ -96,15 +100,15 @@ export async function analyzeIncident(input: {
 export async function setActionStatus(input: {
   actionId: string;
   status: ActionStatus;
-  userId?: string;
 }): Promise<UserActionLog> {
   const response = await fetch(`${API_BASE_URL}/actions/${input.actionId}/status`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      "X-IDLY-Client": "web",
     },
+    credentials: "include",
     body: JSON.stringify({
-      userId: input.userId ?? "local-demo",
       status: input.status,
     }),
   });
@@ -125,4 +129,3 @@ async function parseResponse<T>(response: Response): Promise<T> {
 
   return payload as T;
 }
-

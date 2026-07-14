@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 
 import type { AnalyzeRequest, AnalyzeResult, ModelAnalyzeResult } from "../../domain/types.js";
 import { ActionsService } from "./actions.service.js";
@@ -42,12 +42,17 @@ export class AnalyzeService {
   async analyze(input: AnalyzeInput): Promise<AnalyzeResult> {
     const text = input.request.text?.trim() ?? "";
     const selectedTypeId = input.request.selectedTypeId;
+    const consentToExternalAI = input.request.consentToExternalAI === true;
+
+    if (selectedTypeId != null && this.actionsService.getTypeById(selectedTypeId) == null) {
+      throw new BadRequestException("알 수 없는 유출 유형이에요.");
+    }
 
     if (this.hasSafetyRisk(text)) {
       return this.toSpecialistResult();
     }
 
-    if (this.upstageService.shouldUseLiveCalls()) {
+    if (consentToExternalAI && this.upstageService.shouldUseLiveCalls()) {
       const modelResult = await this.upstageService.analyzeWithUpstage({
         text,
         selectedTypeId,
