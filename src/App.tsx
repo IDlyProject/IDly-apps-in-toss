@@ -1,5 +1,5 @@
-import { Top } from "@toss/tds-mobile";
 import { Component, type ErrorInfo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FileText } from "lucide-react";
 
 import {
   type ActionItem,
@@ -45,6 +45,15 @@ const WELCOME_ENTRY: ChatEntry = {
   },
 };
 
+const DEFAULT_BREACH_TYPES: BreachType[] = [
+  { id: "card_payment_leak", nameKr: "카드/계좌 결제정보 유출", goldenTime: "immediate", triggerKeywords: [], requiresProviderSelection: false },
+  { id: "telecom_personal_info_leak", nameKr: "통신사 개인정보 유출", goldenTime: "hours", triggerKeywords: [], requiresProviderSelection: false },
+  { id: "account_password_leak", nameKr: "이메일/계정 비밀번호 유출", goldenTime: "flexible", triggerKeywords: [], requiresProviderSelection: false },
+  { id: "resident_id_leak", nameKr: "주민번호/신분증 유출", goldenTime: "registration", triggerKeywords: [], requiresProviderSelection: false },
+  { id: "smishing_phishing", nameKr: "스미싱/피싱 의심 문자·전화", goldenTime: "immediate", triggerKeywords: [], requiresProviderSelection: false },
+  { id: "id_card_loss", nameKr: "신분증 분실·유출", goldenTime: "immediate", triggerKeywords: [], requiresProviderSelection: false },
+];
+
 function App() {
   const [view, setView] = useState<View>("chat");
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -67,9 +76,11 @@ function App() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
+  const selectableBreachTypes = breachTypes.length > 0 ? breachTypes : DEFAULT_BREACH_TYPES;
+  const hasUserEntries = chatEntries.some((entry) => entry.role === "user");
   const selectedType = useMemo(
-    () => breachTypes.find((type) => type.id === selectedTypeId) ?? null,
-    [breachTypes, selectedTypeId],
+    () => selectableBreachTypes.find((type) => type.id === selectedTypeId) ?? null,
+    [selectableBreachTypes, selectedTypeId],
   );
   const hasExternalAiInput = message.trim().length > 0 || image != null;
 
@@ -221,9 +232,6 @@ function App() {
   return (
     <main className="app-shell">
       {toastMsg != null && <div className="simple-toast">{toastMsg}</div>}
-      <Top
-        title={<Top.TitleParagraph size={22}>{view === "chat" ? "유출·해킹 대응" : "내 대응 현황"}</Top.TitleParagraph>}
-      />
 
       <div className="simple-tabs">
         <button className={view === "chat" ? "simple-tab active" : "simple-tab"} onClick={() => setView("chat")}>대응 시작</button>
@@ -232,7 +240,10 @@ function App() {
 
       {view === "chat" ? (
         <>
-          <section className="chat-list" aria-label="AI 대응 안내">
+          <section
+            className={hasUserEntries ? "chat-list chat-list-scrollable" : "chat-list chat-list-with-sheet"}
+            aria-label="AI 대응 안내"
+          >
             {chatEntries.map((entry) =>
               entry.role === "user" ? (
                 <UserBubble key={entry.id} text={entry.text} />
@@ -249,7 +260,7 @@ function App() {
             <div ref={chatEndRef} />
           </section>
 
-          {chatEntries.some((e) => e.role === "user") ? (
+          {hasUserEntries ? (
             <section className="input-panel followup-panel" aria-label="후속 입력">
               <textarea
                 className="incident-textarea"
@@ -277,85 +288,87 @@ function App() {
               </div>
             </section>
           ) : (
-            <section className="input-panel" aria-label="사고 상황 입력">
-              <div className="greeting-lines">
-                <p>어떤 유출이 발생했나요?</p>
-                <p>상황을 알려주시면 지금 바로 해야 할 행동을 알려드릴게요.</p>
-              </div>
+            <DraggableToastSheet>
+              <section className="input-panel input-panel-sheet" aria-label="사고 상황 입력">
+                <div className="greeting-lines">
+                  <p>어떤 유출이 발생했나요?</p>
+                  <p>상황을 알려주시면 지금 바로 해야 할 행동을 알려드릴게요.</p>
+                </div>
 
-              <button
-                className="upload-zone"
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <span className="camera-icon" aria-hidden="true" />
-                <strong>문자 · 알림 캡처 첨부하기</strong>
-                <span>받은 문자/이메일 스크린샷을 그대로 올려주세요</span>
-              </button>
+                <button
+                  className="upload-zone"
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <FileText className="upload-icon" aria-hidden="true" size={30} strokeWidth={2} />
+                  <strong>문자 · 알림 캡처 첨부하기</strong>
+                  <span>받은 문자/이메일 스크린샷을 그대로 올려주세요</span>
+                </button>
 
-              <div className="upload-row">
-                <input
-                  ref={fileInputRef}
-                  className="file-input"
-                  type="file"
-                  accept="image/*"
-                  onChange={(event) => handleImageChange(event.target.files?.[0] ?? null)}
-                />
-                {image != null && <span className="file-name">{image.name}</span>}
-              </div>
+                <div className="upload-row">
+                  <input
+                    ref={fileInputRef}
+                    className="file-input"
+                    type="file"
+                    accept="image/*"
+                    onChange={(event) => handleImageChange(event.target.files?.[0] ?? null)}
+                  />
+                  {image != null && <span className="file-name">{image.name}</span>}
+                </div>
 
-              {hasExternalAiInput && (
-                <ExternalAiConsent checked={consent} imageAttached={image != null} onChange={setConsent} />
-              )}
+                {hasExternalAiInput && (
+                  <ExternalAiConsent checked={consent} imageAttached={image != null} onChange={setConsent} />
+                )}
 
-              <div className="or-divider">
-                <span />
-                <b>또는</b>
-                <span />
-              </div>
+                <div className="or-divider">
+                  <span />
+                  <b>또는</b>
+                  <span />
+                </div>
 
-              <div className="field-group">
-                <label className="field-label" htmlFor="incident-message">
-                  텍스트로 설명하기
-                </label>
-                <textarea
-                  id="incident-message"
-                  className="incident-textarea"
-                  value={message}
-                  onChange={(event) => setMessage(event.target.value)}
-                  maxLength={MAX_TEXT_LENGTH}
-                  placeholder="예: 신한카드에서 카드정보 유출 안내 문자를 받았어요."
-                  rows={4}
-                />
-              </div>
+                <div className="field-group">
+                  <label className="field-label" htmlFor="incident-message">
+                    텍스트로 설명하기
+                  </label>
+                  <textarea
+                    id="incident-message"
+                    className="incident-textarea"
+                    value={message}
+                    onChange={(event) => setMessage(event.target.value)}
+                    maxLength={MAX_TEXT_LENGTH}
+                    placeholder="예: 신한카드에서 카드정보 유출 안내 문자를 받았어요."
+                    rows={4}
+                  />
+                </div>
 
-              <div className="fallback-row">
-                <span>사진·설명 없이 바로 고를래요</span>
-              </div>
+                <div className="fallback-row">
+                  <span>사진·설명 없이 바로 고를래요</span>
+                </div>
 
-              <div className="type-grid" aria-label="유형 직접 선택">
-                {breachTypes.map((type) => (
-                  <button
-                    key={type.id}
-                    className={selectedTypeId === type.id ? "type-chip selected" : "type-chip"}
-                    type="button"
-                    onClick={() => setSelectedTypeId((current) => (current === type.id ? null : type.id))}
-                  >
-                    <strong>{type.nameKr}</strong>
-                    <span>{goldenTimeLabels[type.goldenTime]}</span>
-                  </button>
-                ))}
-              </div>
+                <div className="type-grid" aria-label="유형 직접 선택">
+                  {selectableBreachTypes.map((type) => (
+                    <button
+                      key={type.id}
+                      className={selectedTypeId === type.id ? "type-chip selected" : "type-chip"}
+                      type="button"
+                      onClick={() => setSelectedTypeId((current) => (current === type.id ? null : type.id))}
+                    >
+                      <strong>{type.nameKr}</strong>
+                      <span>{goldenTimeLabels[type.goldenTime]}</span>
+                    </button>
+                  ))}
+                </div>
 
-              <button
-                className="app-button app-button-primary primary-cta"
-                type="button"
-                disabled={isSubmitting}
-                onClick={handleAnalyze}
-              >
-                {isSubmitting ? "분석 중" : "대응카드 만들기"}
-              </button>
-            </section>
+                <button
+                  className="app-button app-button-primary primary-cta"
+                  type="button"
+                  disabled={isSubmitting}
+                  onClick={handleAnalyze}
+                >
+                  {isSubmitting ? "분석 중" : "대응카드 만들기"}
+                </button>
+              </section>
+            </DraggableToastSheet>
           )}
         </>
       ) : (
@@ -367,6 +380,106 @@ function App() {
 
 function UserBubble({ text }: { text: string }) {
   return <div className="chat-bubble user-bubble">{text}</div>;
+}
+
+function DraggableToastSheet({ children }: { children: ReactNode }) {
+  const sheetRef = useRef<HTMLDivElement | null>(null);
+  const [offsetY, setOffsetY] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const [minOffset, setMinOffset] = useState(0);
+  const [maxOffset, setMaxOffset] = useState(280);
+  const dragRef = useRef({ startY: 0, startOffset: 0, pointerId: -1 });
+
+  useEffect(() => {
+    function updateMaxOffset() {
+      if (sheetRef.current == null) {
+        return;
+      }
+
+      const fullHeight = sheetRef.current.getBoundingClientRect().height;
+      // Keep header and upload insertion area visible when collapsed.
+      const visibleHeight = Math.min(360, Math.max(260, Math.round(window.innerHeight * 0.42)));
+      const next = Math.max(0, Math.round(fullHeight - visibleHeight));
+      // Ensure fully expanded state never goes beyond the top edge.
+      const nextMin = Math.max(0, Math.round(fullHeight - window.innerHeight + 12));
+      const boundedMin = Math.min(nextMin, next);
+
+      setMinOffset(boundedMin);
+      setMaxOffset(next);
+      setOffsetY((current) => Math.min(next, Math.max(boundedMin, current)));
+    }
+
+    updateMaxOffset();
+    window.addEventListener("resize", updateMaxOffset);
+    return () => window.removeEventListener("resize", updateMaxOffset);
+  }, []);
+
+  return (
+    <div
+      ref={sheetRef}
+      className="toast-sheet"
+      style={{ bottom: `${-offsetY}px`, transition: dragging ? "none" : "bottom 180ms ease" }}
+      role="dialog"
+      aria-label="입력 패널"
+      aria-modal="false"
+    >
+      <div className="toast-sheet-body">
+        <button
+          className="toast-sheet-handle"
+          type="button"
+          aria-label="입력 패널 위치 조절"
+          onPointerDown={(event) => {
+            setDragging(true);
+            dragRef.current = {
+              startY: event.clientY,
+              startOffset: offsetY,
+              pointerId: event.pointerId,
+            };
+            event.currentTarget.setPointerCapture(event.pointerId);
+          }}
+          onPointerMove={(event) => {
+            if (!dragging || dragRef.current.pointerId !== event.pointerId) {
+              return;
+            }
+
+            const distance = event.clientY - dragRef.current.startY;
+            const nextOffset = Math.min(maxOffset, Math.max(minOffset, dragRef.current.startOffset + distance));
+            setOffsetY(nextOffset);
+          }}
+          onPointerUp={(event) => {
+            if (dragRef.current.pointerId !== event.pointerId) {
+              return;
+            }
+
+            setDragging(false);
+            setOffsetY((current) => {
+              const midpoint = (minOffset + maxOffset) / 2;
+              return current > midpoint ? maxOffset : minOffset;
+            });
+            event.currentTarget.releasePointerCapture(event.pointerId);
+          }}
+          onPointerCancel={(event) => {
+            if (dragRef.current.pointerId !== event.pointerId) {
+              return;
+            }
+
+            setDragging(false);
+            setOffsetY((current) => {
+              const midpoint = (minOffset + maxOffset) / 2;
+              return current > midpoint ? maxOffset : minOffset;
+            });
+          }}
+        >
+          <span className="toast-sheet-grabber" aria-hidden="true" />
+        </button>
+
+        {children}
+        <div className="toast-sheet-navigation" aria-hidden="true">
+          <span className="toast-sheet-home-indicator" />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function ExternalAiConsent({
@@ -409,10 +522,11 @@ function AssistantBubble({
 }) {
   return (
     <div className="assistant-block">
-      <div className="chat-bubble assistant-bubble">
-        <p style={{ whiteSpace: "pre-line" }}>{result.aiMessage}</p>
-        <span className="source-pill ai-badge">AI 생성 결과</span>
-        {result.source === "local" && <span className="source-pill">로컬 분석</span>}
+      <div className="assistant-message-shell">
+        <img className="assistant-avatar" src="/부엉이.png" alt="" aria-hidden="true" />
+        <div className="chat-bubble assistant-bubble">
+          <p style={{ whiteSpace: "pre-line" }}>{result.aiMessage}</p>
+        </div>
       </div>
 
       {result.safetyFlag === "refer_to_specialist" ? (
