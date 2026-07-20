@@ -2,21 +2,20 @@ import { useEffect, useRef, useState } from "react";
 
 import { useTossBanner } from "../hooks/useTossBanner";
 
-const TEST_BANNER_AD_GROUP_ID = "ait-ad-test-banner-id";
-
 export function TossBannerAd() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const { isInitialized, isSupported, attachBanner } = useTossBanner();
   const [isVisible, setIsVisible] = useState(true);
+  const adGroupId = import.meta.env.VITE_TOSS_BANNER_AD_GROUP_ID;
 
   useEffect(() => {
-    if (!isInitialized || !isSupported || containerRef.current == null) {
+    if (adGroupId == null || adGroupId.length === 0 || !isInitialized || !isSupported || containerRef.current == null) {
       return;
     }
 
     setIsVisible(true);
 
-    const attached = attachBanner(TEST_BANNER_AD_GROUP_ID, containerRef.current, {
+    const attached = attachBanner(adGroupId, containerRef.current, {
       theme: "auto",
       tone: "blackAndWhite",
       variant: "expanded",
@@ -47,9 +46,9 @@ export function TossBannerAd() {
     return () => {
       attached?.destroy();
     };
-  }, [attachBanner, isInitialized, isSupported]);
+  }, [adGroupId, attachBanner, isInitialized, isSupported]);
 
-  if (!isSupported || !isVisible) {
+  if (adGroupId == null || adGroupId.length === 0 || !isSupported || !isVisible) {
     return null;
   }
 
