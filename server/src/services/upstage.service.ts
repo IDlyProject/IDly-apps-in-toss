@@ -234,7 +234,7 @@ export class UpstageService {
       return result;
     }
 
-    if (this.isTooAmbiguousForResidentIdLeak(detectedTypeIds, sourceText)) {
+    if (result.confidence !== "high" && this.isTooAmbiguousForResidentIdLeak(detectedTypeIds, sourceText)) {
       return {
         detected_types: [],
         confidence: "low",
