@@ -1,6 +1,8 @@
 import { Component, type ErrorInfo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileText } from "lucide-react";
+import { Analytics } from "@apps-in-toss/web-analytics";
 
+import { TossBannerAd } from "./components/TossBannerAd";
 import {
   type ActionItem,
   type ActionStatus,
@@ -140,6 +142,12 @@ function App() {
     }
 
     setIsSubmitting(true);
+    Analytics.click({
+      log_name: "analysis_start",
+      breach_type: selectedTypeId ?? "none",
+      has_image: image != null,
+      has_text: message.trim().length > 0,
+    });
 
     const userText = [
       message.trim(),
@@ -166,6 +174,12 @@ function App() {
         ...entries,
         { id: crypto.randomUUID(), role: "assistant", result },
       ]);
+      Analytics.impression({
+        log_name: "analysis_complete",
+        action_count: result.actions.length,
+        confidence: result.confidence,
+        source: result.source,
+      });
       setMessage("");
       setImage(null);
       setConsent(false);
@@ -186,6 +200,10 @@ function App() {
 
     setActionStatuses((statuses) => ({ ...statuses, [action.id]: nextStatus }));
 
+    if (nextStatus === "done") {
+      Analytics.click({ log_name: "action_complete", action_id: action.id });
+    }
+
     try {
       await setActionStatus({ actionId: action.id, status: nextStatus });
       await refreshStatusLogs();
@@ -196,6 +214,12 @@ function App() {
   }
 
   async function handleActionClick(action: ActionItem | SpecialistReferral) {
+    Analytics.click({
+      log_name: "action_card_link",
+      action_type: action.actionType,
+      action_title: action.title,
+    });
+
     if (action.actionType === "tel") {
       window.location.href = `tel:${action.value}`;
       return;
@@ -235,7 +259,7 @@ function App() {
 
       <div className="simple-tabs">
         <button className={view === "chat" ? "simple-tab active" : "simple-tab"} onClick={() => setView("chat")}>대응 시작</button>
-        <button className={view === "status" ? "simple-tab active" : "simple-tab"} onClick={() => setView("status")}>내 대응 현황</button>
+        <button className={view === "status" ? "simple-tab active" : "simple-tab"} onClick={() => { setView("status"); Analytics.screen({ log_name: "status_view" }); }}>내 대응 현황</button>
       </div>
 
       {view === "chat" ? (
@@ -261,32 +285,35 @@ function App() {
           </section>
 
           {hasUserEntries ? (
-            <section className="input-panel followup-panel" aria-label="후속 입력">
-              <textarea
-                className="incident-textarea"
-                value={message}
-                onChange={(event) => setMessage(event.target.value)}
-                maxLength={MAX_TEXT_LENGTH}
-                placeholder="카드사명이나 추가 상황을 알려주세요."
-                rows={2}
-              />
-              {hasExternalAiInput && (
-                <ExternalAiConsent checked={consent} imageAttached={image != null} onChange={setConsent} />
-              )}
-              <div className="followup-row">
-                <button className="app-button app-button-weak" type="button" onClick={handleReset}>
-                  새로 시작
-                </button>
-                <button
-                  className="app-button app-button-primary followup-send"
-                  type="button"
-                  disabled={isSubmitting || message.trim().length === 0}
-                  onClick={handleAnalyze}
-                >
-                  {isSubmitting ? "분석 중" : "전송"}
-                </button>
-              </div>
-            </section>
+            <>
+              <TossBannerAd />
+              <section className="input-panel followup-panel" aria-label="후속 입력">
+                <textarea
+                  className="incident-textarea"
+                  value={message}
+                  onChange={(event) => setMessage(event.target.value)}
+                  maxLength={MAX_TEXT_LENGTH}
+                  placeholder="카드사명이나 추가 상황을 알려주세요."
+                  rows={2}
+                />
+                {hasExternalAiInput && (
+                  <ExternalAiConsent checked={consent} imageAttached={image != null} onChange={setConsent} />
+                )}
+                <div className="followup-row">
+                  <button className="app-button app-button-weak" type="button" onClick={handleReset}>
+                    새로 시작
+                  </button>
+                  <button
+                    className="app-button app-button-primary followup-send"
+                    type="button"
+                    disabled={isSubmitting || message.trim().length === 0}
+                    onClick={handleAnalyze}
+                  >
+                    {isSubmitting ? "분석 중" : "전송"}
+                  </button>
+                </div>
+              </section>
+            </>
           ) : (
             <DraggableToastSheet>
               <section className="input-panel input-panel-sheet" aria-label="사고 상황 입력">
