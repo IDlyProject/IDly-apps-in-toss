@@ -15,7 +15,7 @@
     "format": "prettier --write ."
   },
   "dependencies": {
-    "@apps-in-toss/web-framework": "^2.10.4",
+    "@apps-in-toss/web-framework": "^2.10.6",
     "@emotion/react": "^11.0.0",
     "@nestjs/common": "^11.1.27",
     "@nestjs/config": "^4.0.4",

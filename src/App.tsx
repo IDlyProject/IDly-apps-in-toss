@@ -8,9 +8,11 @@ import {
   useRef,
   useState,
 } from "react";
+import { Analytics } from "@apps-in-toss/web-analytics";
 import { ArrowRight, CheckCircle2, ChevronDown, Loader2 } from "lucide-react";
 import { Outlet, useLocation, useNavigate, useOutletContext } from "react-router-dom";
 
+import { TossBannerAd } from "./components/TossBannerAd";
 import {
   type ActionItem,
   type ActionStatus,
@@ -21,7 +23,6 @@ import {
   getMyActions,
   setActionStatus,
 } from "./api/idlyApi";
-import InAppAdBanner from "./components/InAppAdBanner";
 import TopNavBar from "./components/TopNavBar";
 import { ROUTES } from "./constants/routes";
 import ActionListBubble from "./pages/AccountAction/components/ActionListBubble";
@@ -148,6 +149,12 @@ function App() {
     }
 
     setIsSubmitting(true);
+    Analytics.click({
+      log_name: "analysis_start",
+      breach_type: "none",
+      has_image: false,
+      has_text: message.trim().length > 0,
+    });
 
     const userText = message.trim();
 
@@ -172,6 +179,12 @@ function App() {
         ...entries,
         { id: crypto.randomUUID(), role: "assistant", result, incidentTitle: userText },
       ]);
+      Analytics.impression({
+        log_name: "analysis_complete",
+        action_count: result.actions.length,
+        confidence: result.confidence,
+        source: result.source,
+      });
       setMessage("");
       setConsent(false);
     } catch (error) {
@@ -389,7 +402,7 @@ function App() {
       {toastMsg != null && <div className="simple-toast">{toastMsg}</div>}
 
       <TopNavBar />
-      <InAppAdBanner />
+      <TossBannerAd />
 
       <Outlet context={outletContext} />
     </main>

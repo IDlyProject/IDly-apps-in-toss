@@ -10,7 +10,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: CORS_ORIGINS
-        value: https://breach-response.private-apps.tossmini.com,https://breach-response.apps.tossmini.com
+        value: https://breach-response.private-apps.tossmini.com,https://breach-response.apps.tossmini.com,http://localhost:5173,http://127.0.0.1:5173
       - key: UPSTAGE_ENABLE_LIVE_CALLS
         value: "true"
       # 아래 값들은 Render 대시보드에서 직접 입력하세요

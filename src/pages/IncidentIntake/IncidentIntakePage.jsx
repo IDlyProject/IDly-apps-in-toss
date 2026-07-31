@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 
 import AssistantRow from "@/pages/AccountAction/components/AssistantRow";
-import InAppAdBanner from "@/components/InAppAdBanner";
+import { TossBannerAd } from "@/components/TossBannerAd";
 import PageBackground from "@/components/layouts/PageBackground";
 import TextBubble from "@/pages/AccountAction/components/TextBubble";
 import TopNavBar from "@/components/TopNavBar";
@@ -247,7 +247,7 @@ export default function IncidentIntakePage() {
     <PageBackground variant="flat">
       <div className="relative flex h-dvh flex-col">
         <TopNavBar />
-        <InAppAdBanner />
+        <TossBannerAd />
 
         <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 pb-6">
           <div className="flex h-full flex-col">

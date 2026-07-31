@@ -44,11 +44,10 @@ export class ActionsService {
   }
 
   getMatchingProviders(input: string, breachTypeId: string): Provider[] {
-    const normalized = input.toLowerCase();
     return providers.filter(
       (provider) =>
         provider.breachTypeId === breachTypeId &&
-        provider.aliases.some((alias) => normalized.includes(alias.toLowerCase())),
+        provider.aliases.some((alias) => this.matchesAlias(input, alias)),
     );
   }
 
@@ -108,5 +107,16 @@ export class ActionsService {
       return true;
     });
   }
-}
 
+  private matchesAlias(input: string, alias: string): boolean {
+    const normalizedInput = input.toLowerCase();
+    const normalizedAlias = alias.toLowerCase();
+
+    if (/^[a-z0-9+.\-\s]+$/i.test(alias)) {
+      const escaped = normalizedAlias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+      return new RegExp(`(^|[^a-z0-9])${escaped}($|[^a-z0-9])`, "i").test(normalizedInput);
+    }
+
+    return normalizedInput.replace(/\s+/g, "").includes(normalizedAlias.replace(/\s+/g, ""));
+  }
+}
