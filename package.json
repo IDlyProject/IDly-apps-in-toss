@@ -21,6 +21,7 @@
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.1.27",
     "@nestjs/platform-express": "^11.1.27",
+    "@tailwindcss/vite": "^4.3.3",
     "@toss/tds-colors": "latest",
     "@toss/tds-mobile": "latest",
     "@toss/tds-mobile-ait": "latest",
@@ -32,8 +33,10 @@
     "pg": "^8.22.0",
     "react": "^18.0.0",
     "react-dom": "^18.0.0",
+    "react-router-dom": "^7.18.2",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
+    "tailwindcss": "^4.3.3",
     "typescript": "~5.7.2"
   },
   "devDependencies": {

@@ -13,6 +13,14 @@ export interface BreachType {
   requiresProviderSelection: boolean;
 }
 
+export interface Provider {
+  id: string;
+  breachTypeId: string;
+  name: string;
+  aliases: string[];
+  category: string;
+}
+
 export interface ActionItem {
   id: string;
   breachTypeId: string;
@@ -47,6 +55,8 @@ export interface UserActionLog {
   status: ActionStatus;
   createdAt: string;
   completedAt: string | null;
+  incidentId: string;
+  incidentTitle: string;
   action: ActionItem;
 }
 
@@ -64,6 +74,11 @@ export async function getBreachTypes(): Promise<BreachType[]> {
 
 export async function getMyActions(): Promise<UserActionLog[]> {
   const response = await fetch(`${API_BASE_URL}/me/actions`, sessionFetchOptions);
+  return parseResponse(response);
+}
+
+export async function getProviders(): Promise<Provider[]> {
+  const response = await fetch(`${API_BASE_URL}/providers`);
   return parseResponse(response);
 }
 
@@ -100,6 +115,8 @@ export async function analyzeIncident(input: {
 export async function setActionStatus(input: {
   actionId: string;
   status: ActionStatus;
+  incidentId: string;
+  incidentTitle: string;
 }): Promise<UserActionLog> {
   const response = await fetch(`${API_BASE_URL}/actions/${input.actionId}/status`, {
     method: "POST",
@@ -110,6 +127,8 @@ export async function setActionStatus(input: {
     credentials: "include",
     body: JSON.stringify({
       status: input.status,
+      incidentId: input.incidentId,
+      incidentTitle: input.incidentTitle,
     }),
   });
 

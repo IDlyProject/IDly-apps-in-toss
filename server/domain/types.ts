@@ -82,4 +82,6 @@ export interface UserResponseLog {
   status: ActionStatus;
   createdAt: string;
   completedAt: string | null;
+  incidentId: string;
+  incidentTitle: string;
 }

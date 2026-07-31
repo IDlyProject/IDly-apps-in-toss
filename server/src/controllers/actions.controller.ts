@@ -40,7 +40,7 @@ export class ActionsController {
   @Post("actions/:actionId/status")
   async setActionStatus(
     @Param("actionId") actionId: string,
-    @Body() body: { status?: ActionStatus },
+    @Body() body: { status?: ActionStatus; incidentId?: string; incidentTitle?: string },
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ) {
@@ -60,6 +60,8 @@ export class ActionsController {
       userId,
       actionItemId: actionId,
       status: body.status ?? "pending",
+      incidentId: body.incidentId ?? "unknown",
+      incidentTitle: body.incidentTitle ?? "기타 보안 조치",
     });
   }
 

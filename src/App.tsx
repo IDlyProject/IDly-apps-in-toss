@@ -1,61 +1,61 @@
-import { Component, type ErrorInfo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileText } from "lucide-react";
+import {
+  Component,
+  type ErrorInfo,
+  type ReactNode,
+  type Ref,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import { ArrowRight, CheckCircle2, ChevronDown, Loader2 } from "lucide-react";
+import { Outlet, useLocation, useNavigate, useOutletContext } from "react-router-dom";
 
 import {
   type ActionItem,
   type ActionStatus,
   type AnalyzeResult,
-  type BreachType,
   type SpecialistReferral,
   type UserActionLog,
   analyzeIncident,
-  getBreachTypes,
   getMyActions,
   setActionStatus,
 } from "./api/idlyApi";
+import TopNavBar from "./components/TopNavBar";
+import { ROUTES } from "./constants/routes";
+import ActionListBubble from "./pages/AccountAction/components/ActionListBubble";
+import AssistantRow from "./pages/AccountAction/components/AssistantRow";
+import ChatInputBar from "./pages/AccountAction/components/ChatInputBar";
+import NavMenuBubble from "./pages/AccountAction/components/NavMenuBubble";
+import QuickReplyBubble from "./pages/AccountAction/components/QuickReplyBubble";
+import SuccessBubble from "./pages/AccountAction/components/SuccessBubble";
+import TextBubble from "./pages/AccountAction/components/TextBubble";
+import TipBubble from "./pages/AccountAction/components/TipBubble";
+import TypingIndicator from "./pages/AccountAction/components/TypingIndicator";
+import UserBubble from "./pages/AccountAction/components/UserBubble";
 import "./App.css";
 
-type View = "chat" | "status";
+type NavMenuItem = { id: string; icon: string; label: string };
 type ChatEntry =
   | { id: string; role: "user"; text: string }
-  | { id: string; role: "assistant"; result: AnalyzeResult };
-
-const goldenTimeLabels: Record<BreachType["goldenTime"], string> = {
-  immediate: "즉시 대응",
-  hours: "몇 시간 내",
-  flexible: "확인 후 대응",
-  registration: "등록형 대응",
-};
+  | { id: string; role: "assistant"; result: AnalyzeResult; incidentTitle: string }
+  | { id: string; role: "assistant"; kind: "text"; text: string }
+  | { id: string; role: "assistant"; kind: "tip"; text: string }
+  | { id: string; role: "assistant"; kind: "quick_reply"; actionId: string }
+  | { id: string; role: "assistant"; kind: "success"; title: string; description: string }
+  | { id: string; role: "assistant"; kind: "nav_menu"; items: NavMenuItem[] }
+  | { id: string; role: "assistant"; kind: "remaining_actions"; title: string; actions: ActionItem[] };
 
 const MAX_TEXT_LENGTH = 2_000;
-const MAX_IMAGE_SIZE = 6 * 1024 * 1024;
+const TYPING_DELAY_MS = 650;
 
-const WELCOME_ENTRY: ChatEntry = {
-  id: "welcome",
-  role: "assistant",
-  result: {
-    detectedTypes: [],
-    confidence: "medium",
-    clarifyingQuestion: null,
-    safetyFlag: null,
-    actions: [],
-    aiMessage:
-      "생성형 AI를 활용해 개인정보 유출 상황을 분석하고 대응 방법을 안내해요. AI가 생성한 결과는 참고용이며, 중요한 결정 전에 공식 기관에 확인해 주세요.\n\n유출 문자나 알림 캡처를 올리거나, 지금 상황을 적어주세요. 바로 실행할 수 있는 대응카드로 정리해드릴게요.",
-    source: "local",
-  },
-};
-
-const DEFAULT_BREACH_TYPES: BreachType[] = [
-  { id: "card_payment_leak", nameKr: "카드/계좌 결제정보 유출", goldenTime: "immediate", triggerKeywords: [], requiresProviderSelection: false },
-  { id: "telecom_personal_info_leak", nameKr: "통신사 개인정보 유출", goldenTime: "hours", triggerKeywords: [], requiresProviderSelection: false },
-  { id: "account_password_leak", nameKr: "이메일/계정 비밀번호 유출", goldenTime: "flexible", triggerKeywords: [], requiresProviderSelection: false },
-  { id: "resident_id_leak", nameKr: "주민번호/신분증 유출", goldenTime: "registration", triggerKeywords: [], requiresProviderSelection: false },
-  { id: "smishing_phishing", nameKr: "스미싱/피싱 의심 문자·전화", goldenTime: "immediate", triggerKeywords: [], requiresProviderSelection: false },
-  { id: "id_card_loss", nameKr: "신분증 분실·유출", goldenTime: "immediate", triggerKeywords: [], requiresProviderSelection: false },
-];
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function App() {
-  const [view, setView] = useState<View>("chat");
+  const navigate = useNavigate();
+  const location = useLocation();
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -64,48 +64,61 @@ function App() {
     if (toastTimer.current != null) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToastMsg(null), 3000);
   }, []);
-  const [breachTypes, setBreachTypes] = useState<BreachType[]>([]);
-  const [selectedTypeId, setSelectedTypeId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
-  const [image, setImage] = useState<File | null>(null);
   const [consent, setConsent] = useState(false);
-  const [chatEntries, setChatEntries] = useState<ChatEntry[]>([WELCOME_ENTRY]);
+  const [chatEntries, setChatEntries] = useState<ChatEntry[]>([]);
   const [actionStatuses, setActionStatuses] = useState<Record<string, ActionStatus>>({});
   const [statusLogs, setStatusLogs] = useState<UserActionLog[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [isTyping, setIsTyping] = useState(false);
+  const [pendingQuickReplyActionId, setPendingQuickReplyActionId] = useState<string | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
+  const didLoadInitialData = useRef(false);
+  const processedLocationState = useRef<unknown>(null);
 
-  const selectableBreachTypes = breachTypes.length > 0 ? breachTypes : DEFAULT_BREACH_TYPES;
   const hasUserEntries = chatEntries.some((entry) => entry.role === "user");
-  const selectedType = useMemo(
-    () => selectableBreachTypes.find((type) => type.id === selectedTypeId) ?? null,
-    [selectableBreachTypes, selectedTypeId],
-  );
-  const hasExternalAiInput = message.trim().length > 0 || image != null;
+  const hasExternalAiInput = message.trim().length > 0;
 
   useEffect(() => {
+    if (didLoadInitialData.current) return;
+    didLoadInitialData.current = true;
     void loadInitialData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatEntries]);
 
-  async function loadInitialData() {
-    // 유형 목록과 로그를 독립적으로 로드 — DB 실패가 카드 선택에 영향 안 주도록
-    void getBreachTypes()
-      .then(setBreachTypes)
-      .catch((error) => showToast(getErrorMessage(error)));
+  // /report(IncidentIntakePage)에서 제출 완료 후 navigate(state)로 넘어온 결과를 채팅에 반영
+  useEffect(() => {
+    const submitted = location.state as { userText?: string; result?: AnalyzeResult } | null;
+    if (submitted?.result == null) return;
 
+    // StrictMode가 개발 모드에서 이 effect를 동일한 location.state로 두 번 호출하는 걸 방지
+    if (processedLocationState.current === location.state) return;
+    processedLocationState.current = location.state;
+
+    setChatEntries((entries) => [
+      ...entries,
+      { id: crypto.randomUUID(), role: "user", text: submitted.userText ?? "" },
+      {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        result: submitted.result!,
+        incidentTitle: submitted.userText ?? "제출한 상황",
+      },
+    ]);
+    navigate(".", { replace: true, state: null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);
+
+  // actionStatuses는 "이번 대응"에서만 유효한 세션 상태예요 — DB에 남아있는 과거 완료 기록과는
+  // 별개로, 새로 시작한 대응의 조치는 항상 미완료(pending)로 보여줘야 해서 여기서 채우지 않아요.
+  async function loadInitialData() {
     void getMyActions()
-      .then((logs) => {
-        setStatusLogs(logs);
-        setActionStatuses(Object.fromEntries(logs.map((log) => [log.actionItemId, log.status])));
-      })
+      .then((logs) => setStatusLogs(logs))
       .catch(() => {
-        // 로그 로드 실패해도 카드 선택·분석은 정상 동작
+        // 로그 로드 실패해도 채팅·분석은 정상 동작
       });
   }
 
@@ -113,7 +126,6 @@ function App() {
     try {
       const logs = await getMyActions();
       setStatusLogs(logs);
-      setActionStatuses(Object.fromEntries(logs.map((log) => [log.actionItemId, log.status])));
     } catch (error) {
       showToast(getErrorMessage(error));
     }
@@ -124,8 +136,8 @@ function App() {
       return;
     }
 
-    if (message.trim().length === 0 && image == null && selectedTypeId == null) {
-      showToast("상황 설명, 캡처 이미지, 직접 선택 중 하나는 필요해요.");
+    if (message.trim().length === 0) {
+      showToast("추가로 알려주실 내용을 입력해주세요.");
       return;
     }
 
@@ -134,351 +146,415 @@ function App() {
       return;
     }
 
-    if (image != null && !consent) {
-      showToast("이미지 분석을 위해 외부 AI 전송 동의가 필요해요.");
-      return;
-    }
-
     setIsSubmitting(true);
 
-    const userText = [
-      message.trim(),
-      image == null ? "" : `첨부 이미지: ${image.name}`,
-      selectedType == null ? "" : `직접 선택: ${selectedType.nameKr}`,
-    ]
-      .filter(Boolean)
-      .join("\n");
+    const userText = message.trim();
 
     setChatEntries((entries) => [
       ...entries,
       { id: crypto.randomUUID(), role: "user", text: userText },
     ]);
+    setIsTyping(true);
 
     try {
-      const result = await analyzeIncident({
-        text: message,
-        image,
-        selectedTypeId,
-        consentToExternalAI: consent,
-      });
+      const [result] = await Promise.all([
+        analyzeIncident({
+          text: message,
+          image: null,
+          selectedTypeId: null,
+          consentToExternalAI: consent,
+        }),
+        wait(TYPING_DELAY_MS),
+      ]);
 
       setChatEntries((entries) => [
         ...entries,
-        { id: crypto.randomUUID(), role: "assistant", result },
+        { id: crypto.randomUUID(), role: "assistant", result, incidentTitle: userText },
       ]);
       setMessage("");
-      setImage(null);
       setConsent(false);
-      setSelectedTypeId(null);
-      if (fileInputRef.current != null) {
-        fileInputRef.current.value = "";
-      }
     } catch (error) {
       showToast(getErrorMessage(error));
     } finally {
+      setIsTyping(false);
       setIsSubmitting(false);
     }
   }
 
-  async function handleToggleAction(action: ActionItem) {
-    const currentStatus = actionStatuses[action.id] ?? "pending";
-    const nextStatus: ActionStatus = currentStatus === "done" ? "pending" : "done";
+  // 여러 말풍선을 한 번에 쏟아내지 않고, 진짜 챗봇처럼 "입력 중" 표시 후 한 개씩 순서대로 보여줘요.
+  async function pushAssistantEntry(entry: ChatEntry) {
+    setIsTyping(true);
+    await wait(TYPING_DELAY_MS);
+    setIsTyping(false);
+    setChatEntries((entries) => [...entries, entry]);
+  }
 
-    setActionStatuses((statuses) => ({ ...statuses, [action.id]: nextStatus }));
+  async function applyActionStatus(
+    actionId: string,
+    nextStatus: ActionStatus,
+    incidentId: string,
+    incidentTitle: string,
+  ) {
+    const previousStatus = actionStatuses[actionId] ?? "pending";
+    setActionStatuses((statuses) => ({ ...statuses, [actionId]: nextStatus }));
 
     try {
-      await setActionStatus({ actionId: action.id, status: nextStatus });
+      await setActionStatus({ actionId, status: nextStatus, incidentId, incidentTitle });
       await refreshStatusLogs();
     } catch (error) {
-      setActionStatuses((statuses) => ({ ...statuses, [action.id]: currentStatus }));
+      setActionStatuses((statuses) => ({ ...statuses, [actionId]: previousStatus }));
       showToast(getErrorMessage(error));
     }
   }
 
-  async function handleActionClick(action: ActionItem | SpecialistReferral) {
-    if (action.actionType === "tel") {
-      window.location.href = `tel:${action.value}`;
-      return;
-    }
+  async function handleActionSelect(action: ActionItem | SpecialistReferral) {
+    const isTel = action.actionType === "tel";
 
     try {
       await navigator.clipboard.writeText(action.value);
-      showToast("복사했어요. 필요한 곳에 붙여넣어 주세요.");
+      showToast(isTel ? "전화번호가 복사됐어요. 전화를 연결할게요!" : "복사되었어요!");
     } catch {
       showToast(action.value);
+    }
+
+    if (isTel) {
+      window.location.href = `tel:${action.value}`;
+    }
+
+    // ActionItem에만 id가 있음 — SpecialistReferral은 완료 상태를 추적하지 않음
+    if (!("id" in action)) return;
+
+    const owningEntry = findResultEntryForAction(action.id);
+    const hasOtherActions = owningEntry != null && owningEntry.result.actions.length > 1;
+
+    setChatEntries((entries) => [
+      ...entries,
+      { id: crypto.randomUUID(), role: "user", text: action.title },
+    ]);
+
+    await pushAssistantEntry({
+      id: crypto.randomUUID(),
+      role: "assistant",
+      kind: "text",
+      text: isTel
+        ? `${action.title} 전화번호(${action.value})로 연결할게요. 통화 후 다시 알려주세요!`
+        : `${action.title} 링크를 복사했어요. 사이트나 앱에 붙여넣어 바로 이동해보세요!`,
+    });
+    if (hasOtherActions) {
+      await pushAssistantEntry({
+        id: crypto.randomUUID(),
+        role: "assistant",
+        kind: "tip",
+        text: "완료 후 다시 알려주시면, 나머지 조치도 도와드릴게요!",
+      });
+    }
+    await pushAssistantEntry({
+      id: crypto.randomUUID(),
+      role: "assistant",
+      kind: "quick_reply",
+      actionId: action.id,
+    });
+
+    setPendingQuickReplyActionId(action.id);
+  }
+
+  function findResultEntryForAction(
+    actionId: string,
+  ): { id: string; result: AnalyzeResult; incidentTitle: string } | null {
+    for (const entry of chatEntries) {
+      if ("result" in entry && entry.result.actions.some((action) => action.id === actionId)) {
+        return entry;
+      }
+    }
+    return null;
+  }
+
+  async function handleQuickReply(actionId: string, choice: "done" | "failed") {
+    if (pendingQuickReplyActionId !== actionId) return;
+    setPendingQuickReplyActionId(null);
+
+    if (choice === "done") {
+      const owningEntry = findResultEntryForAction(actionId);
+
+      setChatEntries((entries) => [
+        ...entries,
+        { id: crypto.randomUUID(), role: "user", text: "조치를 완료했어요!" },
+      ]);
+      await applyActionStatus(
+        actionId,
+        "done",
+        owningEntry?.id ?? "unknown",
+        owningEntry?.incidentTitle ?? "기타 보안 조치",
+      );
+
+      const result = owningEntry?.result ?? null;
+      const updatedStatuses = { ...actionStatuses, [actionId]: "done" as ActionStatus };
+      const allDone =
+        result != null && result.actions.every((action) => updatedStatuses[action.id] === "done");
+
+      if (allDone) {
+        await pushAssistantEntry({
+          id: crypto.randomUUID(),
+          role: "assistant",
+          kind: "success",
+          title: "추천 조치를 모두 완료했어요!",
+          description: "수고하셨어요.",
+        });
+        await pushAssistantEntry({
+          id: crypto.randomUUID(),
+          role: "assistant",
+          kind: "nav_menu",
+          items: [
+            { id: "status", icon: "security", label: "내 대응 현황 보러가기" },
+            { id: "new", icon: "home", label: "새로운 대응 만들기" },
+          ],
+        });
+      } else if (result != null) {
+        const remaining = result.actions.filter((action) => updatedStatuses[action.id] !== "done");
+        await pushAssistantEntry({
+          id: crypto.randomUUID(),
+          role: "assistant",
+          kind: "text",
+          text: `완료! 남은 조치 ${remaining.length}가지 같이 해요.`,
+        });
+        await pushAssistantEntry({
+          id: crypto.randomUUID(),
+          role: "assistant",
+          kind: "remaining_actions",
+          title: "남은 조치 사항",
+          actions: remaining,
+        });
+      }
+    } else {
+      setChatEntries((entries) => [
+        ...entries,
+        { id: crypto.randomUUID(), role: "user", text: "조치하지 못했어요" },
+      ]);
+      await pushAssistantEntry({
+        id: crypto.randomUUID(),
+        role: "assistant",
+        kind: "text",
+        text: "어떤 부분이 막히셨나요? 다시 도와드릴게요!",
+      });
+    }
+  }
+
+  function handleContinueIncident(incidentId: string) {
+    navigate(ROUTES.CHAT);
+    requestAnimationFrame(() => {
+      const target = document.getElementById(incidentId);
+      if (target != null) {
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+      } else {
+        showToast("이 대응은 새로고침되어 채팅에서 이어갈 수 없어요. 새로 시작해주세요.");
+      }
+    });
+  }
+
+  function handleNavMenuSelect(id: string) {
+    if (id === "status") {
+      navigate(ROUTES.RECORDS);
+    } else if (id === "new") {
+      handleReset();
     }
   }
 
   function handleReset() {
-    setChatEntries([WELCOME_ENTRY]);
-    setMessage("");
-    setImage(null);
-    setConsent(false);
-    setSelectedTypeId(null);
+    navigate(ROUTES.HOME);
   }
 
-  function handleImageChange(file: File | null) {
-    if (file != null && file.size > MAX_IMAGE_SIZE) {
-      showToast("이미지는 6MB 이하만 업로드할 수 있어요.");
-      setImage(null);
-      if (fileInputRef.current != null) {
-        fileInputRef.current.value = "";
-      }
-      return;
-    }
-    setImage(file);
-  }
+  const outletContext: ChatOutletContext = {
+    chatEntries,
+    actionStatuses,
+    statusLogs,
+    message,
+    consent,
+    isSubmitting,
+    isTyping,
+    hasUserEntries,
+    hasExternalAiInput,
+    chatEndRef,
+    setMessage,
+    setConsent,
+    handleAnalyze,
+    handleActionSelect,
+    handleQuickReply,
+    handleNavMenuSelect,
+    handleContinueIncident,
+  };
 
   return (
     <main className="app-shell">
       {toastMsg != null && <div className="simple-toast">{toastMsg}</div>}
 
-      <div className="simple-tabs">
-        <button className={view === "chat" ? "simple-tab active" : "simple-tab"} onClick={() => setView("chat")}>대응 시작</button>
-        <button className={view === "status" ? "simple-tab active" : "simple-tab"} onClick={() => setView("status")}>내 대응 현황</button>
-      </div>
+      <TopNavBar />
 
-      {view === "chat" ? (
-        <>
-          <section
-            className={hasUserEntries ? "chat-list chat-list-scrollable" : "chat-list chat-list-with-sheet"}
-            aria-label="AI 대응 안내"
-          >
-            {chatEntries.map((entry) =>
-              entry.role === "user" ? (
-                <UserBubble key={entry.id} text={entry.text} />
-              ) : (
-                <AssistantBubble
-                  key={entry.id}
-                  result={entry.result}
-                  statuses={actionStatuses}
-                  onActionClick={handleActionClick}
-                  onToggleAction={handleToggleAction}
-                />
-              ),
-            )}
-            <div ref={chatEndRef} />
-          </section>
-
-          {hasUserEntries ? (
-            <section className="input-panel followup-panel" aria-label="후속 입력">
-              <textarea
-                className="incident-textarea"
-                value={message}
-                onChange={(event) => setMessage(event.target.value)}
-                maxLength={MAX_TEXT_LENGTH}
-                placeholder="카드사명이나 추가 상황을 알려주세요."
-                rows={2}
-              />
-              {hasExternalAiInput && (
-                <ExternalAiConsent checked={consent} imageAttached={image != null} onChange={setConsent} />
-              )}
-              <div className="followup-row">
-                <button className="app-button app-button-weak" type="button" onClick={handleReset}>
-                  새로 시작
-                </button>
-                <button
-                  className="app-button app-button-primary followup-send"
-                  type="button"
-                  disabled={isSubmitting || message.trim().length === 0}
-                  onClick={handleAnalyze}
-                >
-                  {isSubmitting ? "분석 중" : "전송"}
-                </button>
-              </div>
-            </section>
-          ) : (
-            <DraggableToastSheet>
-              <section className="input-panel input-panel-sheet" aria-label="사고 상황 입력">
-                <div className="greeting-lines">
-                  <p>어떤 유출이 발생했나요?</p>
-                  <p>상황을 알려주시면 지금 바로 해야 할 행동을 알려드릴게요.</p>
-                </div>
-
-                <button
-                  className="upload-zone"
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <FileText className="upload-icon" aria-hidden="true" size={30} strokeWidth={2} />
-                  <strong>문자 · 알림 캡처 첨부하기</strong>
-                  <span>받은 문자/이메일 스크린샷을 그대로 올려주세요</span>
-                </button>
-
-                <div className="upload-row">
-                  <input
-                    ref={fileInputRef}
-                    className="file-input"
-                    type="file"
-                    accept="image/*"
-                    onChange={(event) => handleImageChange(event.target.files?.[0] ?? null)}
-                  />
-                  {image != null && <span className="file-name">{image.name}</span>}
-                </div>
-
-                {hasExternalAiInput && (
-                  <ExternalAiConsent checked={consent} imageAttached={image != null} onChange={setConsent} />
-                )}
-
-                <div className="or-divider">
-                  <span />
-                  <b>또는</b>
-                  <span />
-                </div>
-
-                <div className="field-group">
-                  <label className="field-label" htmlFor="incident-message">
-                    텍스트로 설명하기
-                  </label>
-                  <textarea
-                    id="incident-message"
-                    className="incident-textarea"
-                    value={message}
-                    onChange={(event) => setMessage(event.target.value)}
-                    maxLength={MAX_TEXT_LENGTH}
-                    placeholder="예: 신한카드에서 카드정보 유출 안내 문자를 받았어요."
-                    rows={4}
-                  />
-                </div>
-
-                <div className="fallback-row">
-                  <span>사진·설명 없이 바로 고를래요</span>
-                </div>
-
-                <div className="type-grid" aria-label="유형 직접 선택">
-                  {selectableBreachTypes.map((type) => (
-                    <button
-                      key={type.id}
-                      className={selectedTypeId === type.id ? "type-chip selected" : "type-chip"}
-                      type="button"
-                      onClick={() => setSelectedTypeId((current) => (current === type.id ? null : type.id))}
-                    >
-                      <strong>{type.nameKr}</strong>
-                      <span>{goldenTimeLabels[type.goldenTime]}</span>
-                    </button>
-                  ))}
-                </div>
-
-                <button
-                  className="app-button app-button-primary primary-cta"
-                  type="button"
-                  disabled={isSubmitting}
-                  onClick={handleAnalyze}
-                >
-                  {isSubmitting ? "분석 중" : "대응카드 만들기"}
-                </button>
-              </section>
-            </DraggableToastSheet>
-          )}
-        </>
-      ) : (
-        <StatusView logs={statusLogs} onRefresh={refreshStatusLogs} />
-      )}
+      <Outlet context={outletContext} />
     </main>
   );
 }
 
-function UserBubble({ text }: { text: string }) {
-  return <div className="chat-bubble user-bubble">{text}</div>;
+interface ChatOutletContext {
+  chatEntries: ChatEntry[];
+  actionStatuses: Record<string, ActionStatus>;
+  statusLogs: UserActionLog[];
+  message: string;
+  consent: boolean;
+  isSubmitting: boolean;
+  isTyping: boolean;
+  hasUserEntries: boolean;
+  hasExternalAiInput: boolean;
+  chatEndRef: Ref<HTMLDivElement>;
+  setMessage: (value: string) => void;
+  setConsent: (value: boolean) => void;
+  handleAnalyze: () => Promise<void>;
+  handleActionSelect: (action: ActionItem | SpecialistReferral) => Promise<void>;
+  handleQuickReply: (actionId: string, choice: "done" | "failed") => Promise<void>;
+  handleNavMenuSelect: (id: string) => void;
+  handleContinueIncident: (incidentId: string) => void;
 }
 
-function DraggableToastSheet({ children }: { children: ReactNode }) {
-  const sheetRef = useRef<HTMLDivElement | null>(null);
-  const [offsetY, setOffsetY] = useState(0);
-  const [dragging, setDragging] = useState(false);
-  const [minOffset, setMinOffset] = useState(0);
-  const [maxOffset, setMaxOffset] = useState(280);
-  const dragRef = useRef({ startY: 0, startOffset: 0, pointerId: -1 });
-
-  useEffect(() => {
-    function updateMaxOffset() {
-      if (sheetRef.current == null) {
-        return;
-      }
-
-      const fullHeight = sheetRef.current.getBoundingClientRect().height;
-      // Keep header and upload insertion area visible when collapsed.
-      const visibleHeight = Math.min(360, Math.max(260, Math.round(window.innerHeight * 0.42)));
-      const next = Math.max(0, Math.round(fullHeight - visibleHeight));
-      // Ensure fully expanded state never goes beyond the top edge.
-      const nextMin = Math.max(0, Math.round(fullHeight - window.innerHeight + 12));
-      const boundedMin = Math.min(nextMin, next);
-
-      setMinOffset(boundedMin);
-      setMaxOffset(next);
-      setOffsetY((current) => Math.min(next, Math.max(boundedMin, current)));
-    }
-
-    updateMaxOffset();
-    window.addEventListener("resize", updateMaxOffset);
-    return () => window.removeEventListener("resize", updateMaxOffset);
-  }, []);
+export function ChatTab() {
+  const navigate = useNavigate();
+  const {
+    chatEntries,
+    actionStatuses,
+    message,
+    consent,
+    isSubmitting,
+    isTyping,
+    hasUserEntries,
+    hasExternalAiInput,
+    chatEndRef,
+    setMessage,
+    setConsent,
+    handleAnalyze,
+    handleActionSelect,
+    handleQuickReply,
+    handleNavMenuSelect,
+  } = useOutletContext<ChatOutletContext>();
 
   return (
-    <div
-      ref={sheetRef}
-      className="toast-sheet"
-      style={{ bottom: `${-offsetY}px`, transition: dragging ? "none" : "bottom 180ms ease" }}
-      role="dialog"
-      aria-label="입력 패널"
-      aria-modal="false"
-    >
-      <div className="toast-sheet-body">
-        <button
-          className="toast-sheet-handle"
-          type="button"
-          aria-label="입력 패널 위치 조절"
-          onPointerDown={(event) => {
-            setDragging(true);
-            dragRef.current = {
-              startY: event.clientY,
-              startOffset: offsetY,
-              pointerId: event.pointerId,
-            };
-            event.currentTarget.setPointerCapture(event.pointerId);
-          }}
-          onPointerMove={(event) => {
-            if (!dragging || dragRef.current.pointerId !== event.pointerId) {
-              return;
-            }
+    <div className="chat-view-body">
+      <section className="chat-list chat-list-scrollable relative" aria-label="AI 대응 안내">
+        {chatEntries.length === 0 && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <img src="/owl-large.png" alt="" className="h-40 w-40 object-contain opacity-90" />
+          </div>
+        )}
+        {chatEntries.map((entry, index) => {
+          if (entry.role === "user") {
+            return <UserBubble key={entry.id} text={entry.text} />;
+          }
 
-            const distance = event.clientY - dragRef.current.startY;
-            const nextOffset = Math.min(maxOffset, Math.max(minOffset, dragRef.current.startOffset + distance));
-            setOffsetY(nextOffset);
-          }}
-          onPointerUp={(event) => {
-            if (dragRef.current.pointerId !== event.pointerId) {
-              return;
-            }
+          const previous = chatEntries[index - 1];
+          const showAvatar = previous == null || previous.role !== "assistant";
 
-            setDragging(false);
-            setOffsetY((current) => {
-              const midpoint = (minOffset + maxOffset) / 2;
-              return current > midpoint ? maxOffset : minOffset;
-            });
-            event.currentTarget.releasePointerCapture(event.pointerId);
-          }}
-          onPointerCancel={(event) => {
-            if (dragRef.current.pointerId !== event.pointerId) {
-              return;
-            }
+          if ("result" in entry) {
+            return (
+              <div key={entry.id} id={entry.id}>
+                <AssistantBubble
+                  result={entry.result}
+                  statuses={actionStatuses}
+                  onActionSelect={handleActionSelect}
+                  showAvatar={showAvatar}
+                />
+              </div>
+            );
+          }
 
-            setDragging(false);
-            setOffsetY((current) => {
-              const midpoint = (minOffset + maxOffset) / 2;
-              return current > midpoint ? maxOffset : minOffset;
-            });
-          }}
-        >
-          <span className="toast-sheet-grabber" aria-hidden="true" />
-        </button>
+          return (
+            <AssistantRow key={entry.id} showAvatar={showAvatar}>
+              {entry.kind === "text" && <TextBubble text={entry.text} />}
+              {entry.kind === "tip" && <TipBubble text={entry.text} />}
+              {entry.kind === "success" && (
+                <SuccessBubble title={entry.title} description={entry.description} />
+              )}
+              {entry.kind === "quick_reply" && (
+                <QuickReplyBubble
+                  onSelect={(choice: "done" | "failed") =>
+                    void handleQuickReply(entry.actionId, choice)
+                  }
+                />
+              )}
+              {entry.kind === "nav_menu" && (
+                <NavMenuBubble items={entry.items} onSelect={handleNavMenuSelect} />
+              )}
+              {entry.kind === "remaining_actions" && (
+                <ActionListBubble
+                  title={entry.title}
+                  actions={entry.actions.map((action) => ({
+                    id: action.id,
+                    icon: action.actionType === "tel" ? "tel" : "copy",
+                    title: action.title,
+                    subtitle: action.description,
+                    status: actionStatuses[action.id] ?? "pending",
+                  }))}
+                  onSelect={(id: string) => {
+                    const action = entry.actions.find((item) => item.id === id);
+                    if (action) void handleActionSelect(action);
+                  }}
+                />
+              )}
+            </AssistantRow>
+          );
+        })}
+        {isTyping && <TypingIndicator />}
+        <div ref={chatEndRef} />
+      </section>
 
-        {children}
-        <div className="toast-sheet-navigation" aria-hidden="true">
-          <span className="toast-sheet-home-indicator" />
+      {hasUserEntries ? (
+        <section aria-label="후속 입력">
+          {hasExternalAiInput && (
+            <div className="px-4 pb-2">
+              <ExternalAiConsent checked={consent} imageAttached={false} onChange={setConsent} />
+            </div>
+          )}
+          <ChatInputBar
+            value={message}
+            onChange={setMessage}
+            onSend={handleAnalyze}
+            disabled={isSubmitting}
+            placeholder="카드사명이나 추가 상황을 알려주세요."
+          />
+        </section>
+      ) : (
+        <div className="px-4 pb-4">
+          <div
+            className="rounded-2xl bg-white p-5 shadow-[0_1px_2px_rgba(16,24,46,0.04)]"
+            style={{ borderRadius: "16px" }}
+          >
+            <p className="text-[15px] font-bold text-[#191f28]">어떤 유출이 발생했나요?</p>
+            <p className="mt-2 text-[13px] font-medium leading-relaxed text-[#8b95a1]">
+              문자 캡처를 올리거나 상황을 설명하면 바로 대응카드를 만들어드려요.
+            </p>
+            <button
+              type="button"
+              onClick={() => navigate(ROUTES.HOME)}
+              className="mt-5 flex w-full items-center justify-center gap-1.5 rounded-full bg-[#08257e] py-3.5 text-[14px] font-bold text-white"
+              style={{ borderRadius: "9999px" }}
+            >
+              지금 확인하기
+              <ArrowRight size={16} />
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
+  );
+}
+
+export function RecordsTab() {
+  const { chatEntries, actionStatuses, statusLogs, handleContinueIncident } =
+    useOutletContext<ChatOutletContext>();
+
+  return (
+    <StatusView
+      chatEntries={chatEntries}
+      actionStatuses={actionStatuses}
+      statusLogs={statusLogs}
+      onContinue={handleContinueIncident}
+    />
   );
 }
 
@@ -512,165 +588,250 @@ function ExternalAiConsent({
 function AssistantBubble({
   result,
   statuses,
-  onActionClick,
-  onToggleAction,
+  onActionSelect,
+  showAvatar,
 }: {
   result: AnalyzeResult;
   statuses: Record<string, ActionStatus>;
-  onActionClick: (action: ActionItem | SpecialistReferral) => Promise<void>;
-  onToggleAction: (action: ActionItem) => Promise<void>;
+  onActionSelect: (action: ActionItem | SpecialistReferral) => Promise<void>;
+  showAvatar: boolean;
 }) {
-  return (
-    <div className="assistant-block">
-      <div className="assistant-message-shell">
-        <img className="assistant-avatar" src="/부엉이.png" alt="" aria-hidden="true" />
-        <div className="chat-bubble assistant-bubble">
-          <p style={{ whiteSpace: "pre-line" }}>{result.aiMessage}</p>
-        </div>
-      </div>
+  const isReferral = result.safetyFlag === "refer_to_specialist";
 
-      {result.safetyFlag === "refer_to_specialist" ? (
-        <div className="referral-list">
-          {result.specialistReferrals?.map((referral) => (
-            <ReferralCard
-              key={`${referral.title}-${referral.value}`}
-              referral={referral}
-              onActionClick={onActionClick}
-            />
-          ))}
-        </div>
-      ) : (
-        result.actions.length > 0 && (
-          <div className="action-list">
-            {result.actions.map((action) => (
-              <ActionCard
-                key={action.id}
-                action={action}
-                status={statuses[action.id] ?? "pending"}
-                onActionClick={onActionClick}
-                onToggleAction={onToggleAction}
+  const referralItems = (result.specialistReferrals ?? []).map((referral) => ({
+    id: referral.title,
+    icon: referral.actionType === "tel" ? "tel" : "copy",
+    title: referral.title,
+    subtitle: referral.description,
+    status: "pending" as ActionStatus,
+  }));
+
+  const actionItems = result.actions.map((action) => ({
+    id: action.id,
+    icon: action.actionType === "tel" ? "tel" : "copy",
+    title: action.title,
+    subtitle: action.description,
+    status: statuses[action.id] ?? "pending",
+  }));
+
+  return (
+    <AssistantRow showAvatar={showAvatar}>
+      <div className="space-y-2.5">
+        <TextBubble text={result.aiMessage} />
+
+        {isReferral
+          ? referralItems.length > 0 && (
+              <ActionListBubble
+                title="지금 연락할 곳"
+                actions={referralItems}
+                onSelect={(id: string) => {
+                  const referral = result.specialistReferrals?.find((item) => item.title === id);
+                  if (referral) void onActionSelect(referral);
+                }}
               />
-            ))}
-          </div>
-        )
-      )}
+            )
+          : actionItems.length > 0 && (
+              <ActionListBubble
+                title="추천 조치 사항"
+                actions={actionItems}
+                onSelect={(id: string) => {
+                  const action = result.actions.find((item) => item.id === id);
+                  if (action) void onActionSelect(action);
+                }}
+              />
+            )}
 
-      {result.clarifyingQuestion != null && (
-        <div className="chat-bubble assistant-bubble">
-          <p className="clarifying-question">{result.clarifyingQuestion}</p>
-        </div>
-      )}
-    </div>
+        {result.clarifyingQuestion != null && <TextBubble text={result.clarifyingQuestion} />}
+      </div>
+    </AssistantRow>
   );
 }
 
-function ActionCard({
-  action,
-  status,
-  onActionClick,
-  onToggleAction,
-}: {
-  action: ActionItem;
+interface IncidentGroupRow {
+  actionItemId: string;
+  title: string;
   status: ActionStatus;
-  onActionClick: (action: ActionItem) => Promise<void>;
-  onToggleAction: (action: ActionItem) => Promise<void>;
-}) {
-  return (
-    <article className={status === "done" ? "action-card done" : "action-card"}>
-      <span className={action.priority === 1 ? "priority-flag urgent" : "priority-flag"}>
-        {action.priority === 1 ? "지금 바로 · 우선순위 1" : `우선순위 ${action.priority}`}
-      </span>
-      <div className="action-card-main">
-        <span className={status === "done" ? "card-checkbox checked" : "card-checkbox"} />
-        <div>
-          <h3>{action.title}</h3>
-          <p>{action.description}</p>
-          <small>{action.actionType === "tel" ? action.value : "링크/문구 복사"}</small>
-        </div>
-      </div>
-      <div className="action-controls">
-        <button className="app-button app-button-weak app-button-small" type="button" onClick={() => void onActionClick(action)}>
-          {action.actionType === "tel" ? "전화 걸기" : "링크 복사"}
-        </button>
-        <button
-          className={status === "done" ? "app-button app-button-weak app-button-small" : "app-button app-button-primary app-button-small"}
-          type="button"
-          onClick={() => void onToggleAction(action)}
-        >
-          {status === "done" ? "완료됨" : "완료"}
-        </button>
-      </div>
-    </article>
-  );
+  completedAt: string | null;
 }
 
-function ReferralCard({
-  referral,
-  onActionClick,
-}: {
-  referral: SpecialistReferral;
-  onActionClick: (action: SpecialistReferral) => Promise<void>;
-}) {
-  return (
-    <article className="referral-card">
-      <h3>{referral.title}</h3>
-      <p>{referral.description}</p>
-      <button className="app-button app-button-weak referral-action" type="button" onClick={() => void onActionClick(referral)}>
-        전화
-      </button>
-    </article>
-  );
+interface IncidentGroup {
+  key: string;
+  label: string;
+  rows: IncidentGroupRow[];
+}
+
+// 각 채팅(대응)에서 추천된 조치 전체 목록은 서버가 아니라 이 세션의 chatEntries에만 있어요.
+// statusLogs(서버/메모리 기록)에는 사용자가 실제로 클릭해본 조치만 남기 때문에,
+// 아직 손대지 않은 "대기중" 조치까지 보여주려면 chatEntries를 기준으로 합쳐야 해요.
+function buildIncidentGroups(
+  chatEntries: ChatEntry[],
+  actionStatuses: Record<string, ActionStatus>,
+  statusLogs: UserActionLog[],
+): IncidentGroup[] {
+  const groups: IncidentGroup[] = [];
+  const coveredIncidentIds = new Set<string>();
+
+  for (const entry of chatEntries) {
+    if (!("result" in entry) || entry.result.actions.length === 0) continue;
+
+    const rows: IncidentGroupRow[] = entry.result.actions.map((action) => {
+      const status = actionStatuses[action.id] ?? "pending";
+      const matchingLog = statusLogs.find(
+        (log) => log.actionItemId === action.id && log.incidentId === entry.id,
+      );
+      return {
+        actionItemId: action.id,
+        title: action.title,
+        status,
+        completedAt: matchingLog?.completedAt ?? null,
+      };
+    });
+
+    coveredIncidentIds.add(entry.id);
+    groups.push({ key: entry.id, label: entry.incidentTitle, rows });
+  }
+
+  // 새로고침 전 세션 등, 현재 chatEntries에는 없지만 서버에 기록만 남아있는 과거 대응
+  const pastGroupsByKey = new Map<string, IncidentGroup>();
+  for (const log of statusLogs) {
+    if (coveredIncidentIds.has(log.incidentId)) continue;
+
+    const row: IncidentGroupRow = {
+      actionItemId: log.actionItemId,
+      title: log.action.title,
+      status: log.status,
+      completedAt: log.completedAt,
+    };
+
+    const existing = pastGroupsByKey.get(log.incidentId);
+    if (existing != null) {
+      existing.rows.push(row);
+    } else {
+      pastGroupsByKey.set(log.incidentId, { key: log.incidentId, label: log.incidentTitle, rows: [row] });
+    }
+  }
+
+  for (const group of [...groups, ...pastGroupsByKey.values()]) {
+    group.rows.sort((a, b) => (a.status === b.status ? 0 : a.status === "pending" ? -1 : 1));
+  }
+
+  // 최근 채팅이 위로 오도록 뒤집고, 과거 기록은 그 아래에 붙임
+  return [...groups].reverse().concat([...pastGroupsByKey.values()].reverse());
 }
 
 function StatusView({
-  logs,
-  onRefresh,
+  chatEntries,
+  actionStatuses,
+  statusLogs,
+  onContinue,
 }: {
-  logs: UserActionLog[];
-  onRefresh: () => Promise<void>;
+  chatEntries: ChatEntry[];
+  actionStatuses: Record<string, ActionStatus>;
+  statusLogs: UserActionLog[];
+  onContinue: (incidentId: string) => void;
 }) {
-  const sortedLogs = [...logs].sort((a, b) => {
-    if (a.status === b.status) {
-      return b.createdAt.localeCompare(a.createdAt);
-    }
-    return a.status === "pending" ? -1 : 1;
-  });
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  const groups = buildIncidentGroups(chatEntries, actionStatuses, statusLogs);
+  const allRows = groups.flatMap((group) => group.rows);
+  const doneCount = allRows.filter((row) => row.status === "done").length;
+  const pendingCount = allRows.filter((row) => row.status === "pending").length;
+
+  function toggleGroup(key: string) {
+    setExpanded((current) => ({ ...current, [key]: !(current[key] ?? true) }));
+  }
 
   return (
     <section className="status-panel" aria-label="내 대응 현황">
-      <div className="status-header">
-        <div>
-          <div className="tab-row">
-            <span className="tab active">진행중 ({logs.filter((log) => log.status === "pending").length})</span>
-            <span className="tab inactive">완료 ({logs.filter((log) => log.status === "done").length})</span>
+      <div
+        className="rounded-2xl p-5"
+        style={{ background: "linear-gradient(135deg, #0b1a52 0%, #2454d8 100%)", borderRadius: "20px" }}
+      >
+        <p className="text-[14px] font-bold text-white">이번 달 보안 조치</p>
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <div className="rounded-2xl bg-white/10 py-4 text-center" style={{ borderRadius: "16px" }}>
+            <CheckCircle2 size={22} className="mx-auto text-[#43d97b]" />
+            <p className="mt-2 text-[26px] font-extrabold text-white">{doneCount}</p>
+            <p className="mt-0.5 text-[12px] font-medium text-white/70">완료</p>
+          </div>
+          <div className="rounded-2xl bg-white/10 py-4 text-center" style={{ borderRadius: "16px" }}>
+            <Loader2 size={22} className="mx-auto text-[#f2c94c]" />
+            <p className="mt-2 text-[26px] font-extrabold text-white">{pendingCount}</p>
+            <p className="mt-0.5 text-[12px] font-medium text-white/70">진행중</p>
           </div>
         </div>
-        <button className="app-button app-button-weak app-button-small" type="button" onClick={() => void onRefresh()}>
-          새로고침
-        </button>
       </div>
 
-      {sortedLogs.length === 0 ? (
-        <div className="empty-state">아직 저장된 대응 항목이 없어요.</div>
+      {groups.length === 0 ? (
+        <div className="empty-state mt-4">아직 저장된 대응 항목이 없어요.</div>
       ) : (
-        <div className="status-list">
-          {sortedLogs.map((log) => (
-            <article key={log.actionItemId} className="status-row">
-              <span className={log.status === "done" ? "status-dot done" : "status-dot"} />
-              <div>
-                <h3>{log.action.title}</h3>
-                <p>{log.action.description}</p>
-                <small>
-                  {log.status === "done"
-                    ? `완료 ${formatDate(log.completedAt)}`
-                    : `진행중 ${formatDate(log.createdAt)}`}
-                </small>
+        <div className="mt-4 flex flex-col gap-3">
+          {groups.map((group) => {
+            const isExpanded = expanded[group.key] ?? true;
+            const doneInGroup = group.rows.filter((row) => row.status === "done").length;
+            const allDoneInGroup = doneInGroup === group.rows.length;
+
+            return (
+              <div
+                key={group.key}
+                className="rounded-2xl bg-white shadow-[0_1px_2px_rgba(16,24,46,0.04)]"
+                style={{ borderRadius: "16px" }}
+              >
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(group.key)}
+                  className="flex w-full items-center gap-3 px-4 py-4 text-left"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[16px] font-bold text-[#191f28]">{group.label}</span>
+                    <span
+                      className={`block text-[13px] font-medium ${
+                        allDoneInGroup ? "text-[#43a047]" : "text-[#8b95a1]"
+                      }`}
+                    >
+                      {allDoneInGroup ? "모든 조치 완료" : `${doneInGroup}/${group.rows.length}건 완료`}
+                    </span>
+                  </span>
+                  <ChevronDown
+                    size={18}
+                    className={`shrink-0 text-[#b0b8c1] transition-transform ${isExpanded ? "" : "rotate-180"}`}
+                  />
+                </button>
+
+                {isExpanded && (
+                  <div className="border-t border-[#f0f1f4]">
+                    {group.rows.map((row, index) => (
+                      <button
+                        key={row.actionItemId}
+                        type="button"
+                        onClick={() => onContinue(group.key)}
+                        className={`flex w-full items-center gap-2.5 px-4 py-3.5 text-left active:bg-[#f8f9fb] ${
+                          index < group.rows.length - 1 ? "border-b border-[#f5f6f8]" : ""
+                        }`}
+                      >
+                        {row.status === "done" ? (
+                          <CheckCircle2 size={16} className="shrink-0 text-[#43a047]" />
+                        ) : (
+                          <span className="h-4 w-4 shrink-0 rounded-full border-2 border-dashed border-[#d1d6db]" />
+                        )}
+                        <span className="min-w-0 flex-1 break-words text-[14px] font-medium text-[#191f28]">
+                          {row.title}
+                        </span>
+                        <span
+                          className={`shrink-0 text-[12px] font-medium ${
+                            row.status === "done" ? "text-[#8b95a1]" : "text-[#b0b8c1]"
+                          }`}
+                        >
+                          {row.status === "done" ? `${formatDate(row.completedAt)} 완료` : "대기중"}
+                        </span>
+                        <ChevronDown size={14} className="-rotate-90 shrink-0 text-[#d1d6db]" />
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
-              <span className={log.status === "done" ? "status-chip done" : "status-chip"}>
-                {log.status === "done" ? "완료" : "미완료"}
-              </span>
-            </article>
-          ))}
+            );
+          })}
         </div>
       )}
     </section>
