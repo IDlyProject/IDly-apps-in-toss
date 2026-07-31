@@ -3,25 +3,38 @@ import { useNavigate } from "react-router-dom";
 import {
   CreditCard,
   Fingerprint,
-  FileText,
   IdCard,
+  ListChecks,
   Mail,
   MessageCircle,
+  MessageSquareText,
+  ScanLine,
   Search,
-  ShieldAlert,
   ShieldCheck,
   Smartphone,
   TriangleAlert,
   Wallet,
-  X,
 } from "lucide-react";
 
 import AssistantRow from "@/pages/AccountAction/components/AssistantRow";
+import InAppAdBanner from "@/components/InAppAdBanner";
 import PageBackground from "@/components/layouts/PageBackground";
 import TextBubble from "@/pages/AccountAction/components/TextBubble";
 import TopNavBar from "@/components/TopNavBar";
 import { ROUTES } from "@/constants/routes";
 import { analyzeIncident, getBreachTypes } from "@/api/idlyApi";
+import BreachTypeField from "./components/BreachTypeField";
+import ImageCaptureField, { formatFileSize } from "./components/ImageCaptureField";
+import IntakeFieldSheet from "./components/IntakeFieldSheet";
+import IntakeSection from "./components/IntakeSection";
+import TextDescriptionField from "./components/TextDescriptionField";
+import ExternalAiConsentSheet from "./components/ExternalAiConsentSheet";
+
+const INTAKE_SHEETS = {
+  image: { icon: ScanLine, title: "문자·알림 캡처 첨부하기" },
+  text: { icon: MessageSquareText, title: "텍스트로 설명하기" },
+  type: { icon: ListChecks, title: "유형 직접 선택하기" },
+};
 
 const MAX_TEXT_LENGTH = 2_000;
 const MAX_IMAGE_SIZE = 6 * 1024 * 1024;
@@ -48,11 +61,6 @@ const BREACH_TYPE_ICONS = {
   crypto_exchange_leak: Wallet,
 };
 
-function formatFileSize(bytes) {
-  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))}KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
-}
-
 function getFriendlyErrorMessage(error) {
   // fetch()가 서버에 아예 닿지 못하면 TypeError("Failed to fetch")를 던짐
   if (error instanceof TypeError) {
@@ -70,16 +78,23 @@ export default function IncidentIntakePage() {
   const [image, setImage] = useState(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState(null);
   const [consent, setConsent] = useState(false);
+  const [showConsentSheet, setShowConsentSheet] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [toast, setToast] = useState(null);
+  const [activeSheetKey, setActiveSheetKey] = useState("image");
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [sheetStep, setSheetStep] = useState("field");
+  const [consentStepMinHeight, setConsentStepMinHeight] = useState(null);
   const fileInputRef = useRef(null);
   const toastTimerRef = useRef(null);
   const didLoadBreachTypes = useRef(false);
+  const sheetBodyRef = useRef(null);
 
   const selectableBreachTypes = breachTypes.length > 0 ? breachTypes : DEFAULT_BREACH_TYPES;
   const hasExternalAiInput = message.trim().length > 0 || image != null;
   const textLength = message.trim().length;
   const nearLimit = textLength > MAX_TEXT_LENGTH * 0.9;
+  const selectedType = selectableBreachTypes.find((type) => type.id === selectedTypeId) ?? null;
 
   useEffect(() => {
     if (didLoadBreachTypes.current) return;
@@ -110,6 +125,16 @@ export default function IncidentIntakePage() {
     toastTimerRef.current = setTimeout(() => setToast(null), 2500);
   }
 
+  function openSheet(key) {
+    setActiveSheetKey(key);
+    setSheetStep("field");
+    setSheetOpen(true);
+  }
+
+  function closeSheet() {
+    setSheetOpen(false);
+  }
+
   function handleImageChange(file) {
     if (imagePreviewUrl != null) URL.revokeObjectURL(imagePreviewUrl);
 
@@ -123,6 +148,8 @@ export default function IncidentIntakePage() {
 
     setImage(file);
     setImagePreviewUrl(file == null ? null : URL.createObjectURL(file));
+    // 이미지가 추가되면 전송 범위가 바뀌므로 동의를 다시 받아요.
+    if (file != null) setConsent(false);
   }
 
   function handleRemoveImage() {
@@ -143,14 +170,17 @@ export default function IncidentIntakePage() {
       showToast(`상황 설명은 ${MAX_TEXT_LENGTH}자 이내로 입력해 주세요.`);
       return;
     }
-    if (image != null && !consent) {
-      showToast("이미지 분석을 위해 외부 AI 전송 동의가 필요해요.");
+    if (hasExternalAiInput && !consent) {
+      setShowConsentSheet(true);
       return;
     }
 
+    await performSubmit();
+  }
+
+  async function performSubmit() {
     setIsSubmitting(true);
 
-    const selectedType = selectableBreachTypes.find((type) => type.id === selectedTypeId) ?? null;
     const userText = [
       message.trim(),
       image == null ? "" : `첨부 이미지: ${image.name}`,
@@ -174,171 +204,90 @@ export default function IncidentIntakePage() {
     }
   }
 
+  function handleConsentAgree() {
+    setConsent(true);
+    setShowConsentSheet(false);
+    void performSubmit();
+  }
+
+  function handleConsentClose() {
+    setShowConsentSheet(false);
+  }
+
+  async function handleSheetSubmit() {
+    if (isSubmitting) return;
+
+    if (message.trim().length === 0 && image == null && selectedTypeId == null) {
+      showToast("상황 설명, 캡처 이미지, 직접 선택 중 하나는 필요해요.");
+      return;
+    }
+    if (message.trim().length > MAX_TEXT_LENGTH) {
+      showToast(`상황 설명은 ${MAX_TEXT_LENGTH}자 이내로 입력해 주세요.`);
+      return;
+    }
+    if (hasExternalAiInput && !consent) {
+      setConsentStepMinHeight(sheetBodyRef.current?.offsetHeight ?? null);
+      setSheetStep("consent");
+      return;
+    }
+
+    await performSubmit();
+  }
+
+  function handleSheetConsentAgree() {
+    setConsent(true);
+    void performSubmit();
+  }
+
+  function handleSheetConsentCancel() {
+    setSheetStep("field");
+  }
+
   return (
-    <PageBackground variant="frost">
+    <PageBackground variant="flat">
       <div className="relative flex h-dvh flex-col">
         <TopNavBar />
+        <InAppAdBanner />
 
         <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 pb-6">
-          <div className="pt-1">
-            <AssistantRow showAvatar>
-              <TextBubble text={"어떤 유출이 발생했나요?\n상황을 알려주시면 지금 바로 해야 할 행동을 알려드릴게요."} />
-            </AssistantRow>
-          </div>
-
-          <div
-            className="mt-4 rounded-2xl bg-white p-4 shadow-[0_1px_2px_rgba(16,24,46,0.04)]"
-            style={{ borderRadius: "16px" }}
-          >
-            {image == null ? (
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="flex w-full flex-col items-center gap-2 rounded-xl border border-dashed border-[#c9d3ea] bg-[#f7f9ff] px-4 py-6 text-center transition-colors active:bg-[#eef2ff]"
-                style={{ borderRadius: "12px" }}
-              >
-                <FileText size={26} strokeWidth={2} className="text-[#08257e]" />
-                <strong className="text-[14px] font-bold text-[#191f28]">문자 · 알림 캡처 첨부하기</strong>
-                <span className="text-[12px] font-medium leading-relaxed text-[#6b7684]">
-                  받은 문자/이메일 스크린샷을 그대로 올려주세요
-                </span>
-              </button>
-            ) : (
-              <div className="flex items-center gap-3 rounded-xl border border-[#e5e8eb] bg-[#f8faff] p-2.5">
-                <img
-                  src={imagePreviewUrl}
-                  alt=""
-                  className="h-14 w-14 shrink-0 rounded-lg object-cover"
-                  style={{ borderRadius: "8px" }}
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13px] font-bold text-[#191f28]">{image.name}</p>
-                  <p className="text-[12px] font-medium text-[#6b7684]">{formatFileSize(image.size)}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleRemoveImage}
-                  aria-label="첨부 이미지 삭제"
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-[#6b7684] shadow-[0_1px_2px_rgba(16,24,46,0.08)] transition-colors active:bg-[#f2f4f8]"
-                  style={{ borderRadius: "9999px" }}
-                >
-                  <X size={16} />
-                </button>
-              </div>
-            )}
-
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(event) => handleImageChange(event.target.files?.[0] ?? null)}
-            />
-
-            <div
-              className={`grid overflow-hidden transition-[grid-template-rows] duration-300 ease-out ${
-                hasExternalAiInput ? "mt-3 grid-rows-[1fr]" : "grid-rows-[0fr]"
-              }`}
-            >
-              <div className="min-h-0">
-                <label className="flex items-start gap-2 rounded-xl border border-[#ffe1a6] bg-[#fff8e7] px-3 py-2.5">
-                  <input
-                    type="checkbox"
-                    checked={consent}
-                    onChange={(event) => setConsent(event.target.checked)}
-                    className="mt-0.5 h-4 w-4 shrink-0 accent-[#08257e]"
-                  />
-                  <span className="text-[12px] leading-relaxed text-[#191f28]">
-                    <b>{image != null ? "[필수]" : "[선택]"} 외부 AI 분석 동의</b>
-                    <br />
-                    동의하면 입력한 내용{image != null ? "과 이미지" : ""}이 AI 분석을 위해 외부 AI
-                    서비스로 전송될 수 있어요.
-                  </span>
-                </label>
-              </div>
+          <div className="flex h-full flex-col">
+            <div className="shrink-0 pt-1">
+              <AssistantRow showAvatar>
+                <TextBubble text={"어떤 유출이 발생했나요?\n상황을 알려주시면 지금 바로 해야 할 행동을 알려드릴게요."} />
+              </AssistantRow>
             </div>
 
-            <div className="my-4 flex items-center gap-2">
-              <span className="h-px flex-1 bg-[#e5e8eb]" />
-              <b className="text-[10px] font-bold text-[#6b7684]">또는</b>
-              <span className="h-px flex-1 bg-[#e5e8eb]" />
+            <div className="flex flex-1 flex-col justify-center gap-2.5 py-6">
+              <IntakeSection
+                icon={ScanLine}
+                label="문자·알림 캡처 첨부하기"
+                summary={image != null ? `${image.name} · ${formatFileSize(image.size)}` : "받은 문자·이메일 스크린샷을 그대로 올려요"}
+                filled={image != null}
+                onClick={() => openSheet("image")}
+              />
+
+              <IntakeSection
+                icon={MessageSquareText}
+                label="텍스트로 설명하기"
+                summary={textLength > 0 ? `${textLength.toLocaleString()}자 입력했어요` : "상황을 직접 입력해요"}
+                filled={textLength > 0}
+                onClick={() => openSheet("text")}
+              />
+
+              <IntakeSection
+                icon={ListChecks}
+                label="유형 직접 선택하기"
+                summary={selectedType != null ? selectedType.nameKr : "10가지 유형 중에서 선택해요"}
+                filled={selectedType != null}
+                onClick={() => openSheet("type")}
+              />
             </div>
-
-            <div className="mb-2 flex items-baseline justify-between">
-              <label className="text-[14px] font-bold text-[#191f28]" htmlFor="incident-message">
-                텍스트로 설명하기
-              </label>
-              <span className={`text-[11px] font-medium ${nearLimit ? "text-[#ee4e4e]" : "text-[#94a3b8]"}`}>
-                {textLength.toLocaleString()} / {MAX_TEXT_LENGTH.toLocaleString()}
-              </span>
-            </div>
-            <textarea
-              id="incident-message"
-              value={message}
-              onChange={(event) => setMessage(event.target.value)}
-              maxLength={MAX_TEXT_LENGTH}
-              placeholder="예: 신한카드에서 카드정보 유출 안내 문자를 받았어요."
-              rows={4}
-              className="w-full resize-none rounded-xl border border-[#d1d6db] bg-white p-3 text-[14px] leading-relaxed text-[#191f28] outline-none transition-colors focus:border-[#08257e] focus-visible:ring-2 focus-visible:ring-[#08257e]/15"
-              style={{ borderRadius: "12px" }}
-            />
-          </div>
-
-          <p className="mb-3 mt-7 px-1 text-[13px] font-bold text-[#191f28]">또는 유형을 직접 선택하세요</p>
-
-          <div className="grid grid-cols-2 gap-2">
-            {selectableBreachTypes.map((type) => {
-              const selected = selectedTypeId === type.id;
-              const Icon = BREACH_TYPE_ICONS[type.id] ?? ShieldAlert;
-
-              return (
-                <button
-                  key={type.id}
-                  type="button"
-                  onClick={() => setSelectedTypeId((current) => (current === type.id ? null : type.id))}
-                  className={`relative flex min-h-[60px] items-center gap-2.5 rounded-2xl border px-3 py-3 text-left transition-colors ${
-                    selected
-                      ? "border-[#08257e] bg-[#eff3ff]"
-                      : "border-[#e5e8eb] bg-white active:bg-[#f8faff]"
-                  }`}
-                  style={{ borderRadius: "16px" }}
-                >
-                  <span
-                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
-                      selected ? "bg-[#08257e]" : "bg-[#eef1f7]"
-                    }`}
-                    style={{ borderRadius: "8px" }}
-                  >
-                    <Icon size={16} className={selected ? "text-white" : "text-[#4e5968]"} />
-                  </span>
-                  <strong className="min-w-0 flex-1 text-[13px] font-bold leading-snug text-[#191f28]">
-                    {type.nameKr}
-                  </strong>
-                  {selected && (
-                    <span
-                      className="absolute right-2 top-2 flex h-4 w-4 items-center justify-center rounded-full bg-[#08257e] text-white"
-                      style={{ borderRadius: "9999px" }}
-                    >
-                      <svg width="9" height="7" viewBox="0 0 9 7" fill="none" aria-hidden="true">
-                        <path
-                          d="M1 3.5L3.2 5.7L8 1"
-                          stroke="currentColor"
-                          strokeWidth="1.6"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                    </span>
-                  )}
-                </button>
-              );
-            })}
           </div>
         </div>
 
         <div className="relative px-4 pb-[max(20px,env(safe-area-inset-bottom))] pt-4">
           <div
-            className={`pointer-events-none absolute inset-x-4 -top-3 flex -translate-y-full justify-center transition-all duration-200 ease-out ${
+            className={`pointer-events-none absolute inset-x-4 -top-3 z-[60] flex -translate-y-full justify-center transition-all duration-200 ease-out ${
               toast ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
             }`}
           >
@@ -361,6 +310,89 @@ export default function IncidentIntakePage() {
           </button>
         </div>
       </div>
+
+      <IntakeFieldSheet
+        ref={sheetBodyRef}
+        open={sheetOpen}
+        icon={sheetStep === "consent" ? ShieldCheck : INTAKE_SHEETS[activeSheetKey].icon}
+        title={sheetStep === "consent" ? "외부 AI 분석 동의가 필요해요" : INTAKE_SHEETS[activeSheetKey].title}
+        onClose={closeSheet}
+      >
+        {sheetStep === "consent" ? (
+          <div
+            className="flex flex-1 flex-col justify-center gap-6 transition-[min-height] duration-200 ease-out"
+            style={{ minHeight: consentStepMinHeight ?? undefined }}
+          >
+            <p className="text-[13px] leading-relaxed text-[#6b7684]">
+              입력한 내용{image != null ? "과 첨부한 이미지는" : "은"} 유출 유형 분석을 위해 외부 AI
+              서비스(업스테이지)로 전송돼요. 동의해야 대응 분석을 시작할 수 있어요.
+            </p>
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={handleSheetConsentAgree}
+                className="w-full rounded-full bg-[#08257e] py-3.5 text-[15px] font-bold text-white transition-opacity active:opacity-85"
+                style={{ borderRadius: "9999px" }}
+              >
+                동의하고 계속하기
+              </button>
+              <button
+                type="button"
+                onClick={handleSheetConsentCancel}
+                className="w-full rounded-full py-3.5 text-[14px] font-bold text-[#6b7684] transition-colors active:bg-[#f2f4f6]"
+                style={{ borderRadius: "9999px" }}
+              >
+                취소
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {activeSheetKey === "image" && (
+              <ImageCaptureField
+                image={image}
+                imagePreviewUrl={imagePreviewUrl}
+                fileInputRef={fileInputRef}
+                onFileChange={handleImageChange}
+                onRemoveImage={handleRemoveImage}
+              />
+            )}
+            {activeSheetKey === "text" && (
+              <TextDescriptionField
+                message={message}
+                onMessageChange={setMessage}
+                textLength={textLength}
+                nearLimit={nearLimit}
+                maxTextLength={MAX_TEXT_LENGTH}
+              />
+            )}
+            {activeSheetKey === "type" && (
+              <BreachTypeField
+                types={selectableBreachTypes}
+                icons={BREACH_TYPE_ICONS}
+                selectedTypeId={selectedTypeId}
+                onSelect={setSelectedTypeId}
+              />
+            )}
+            <button
+              type="button"
+              disabled={isSubmitting}
+              onClick={handleSheetSubmit}
+              className="w-full rounded-full bg-[#08257e] py-3.5 text-[15px] font-bold text-white transition-opacity active:opacity-80 disabled:opacity-50"
+              style={{ borderRadius: "9999px" }}
+            >
+              {isSubmitting ? "분석 중" : "유출·대응 시작하기"}
+            </button>
+          </>
+        )}
+      </IntakeFieldSheet>
+
+      <ExternalAiConsentSheet
+        open={showConsentSheet}
+        imageAttached={image != null}
+        onAgree={handleConsentAgree}
+        onClose={handleConsentClose}
+      />
     </PageBackground>
   );
 }

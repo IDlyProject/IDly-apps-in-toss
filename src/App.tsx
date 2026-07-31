@@ -21,6 +21,7 @@ import {
   getMyActions,
   setActionStatus,
 } from "./api/idlyApi";
+import InAppAdBanner from "./components/InAppAdBanner";
 import TopNavBar from "./components/TopNavBar";
 import { ROUTES } from "./constants/routes";
 import ActionListBubble from "./pages/AccountAction/components/ActionListBubble";
@@ -388,6 +389,7 @@ function App() {
       {toastMsg != null && <div className="simple-toast">{toastMsg}</div>}
 
       <TopNavBar />
+      <InAppAdBanner />
 
       <Outlet context={outletContext} />
     </main>
@@ -525,14 +527,17 @@ export function ChatTab() {
             style={{ borderRadius: "16px" }}
           >
             <p className="text-[15px] font-bold text-[#191f28]">어떤 유출이 발생했나요?</p>
-            <p className="mt-2 text-[13px] font-medium leading-relaxed text-[#8b95a1]">
+            <p
+              className="mt-2.5 text-[13px] font-medium leading-relaxed text-[#8b95a1]"
+              style={{ marginTop: "10px" }}
+            >
               문자 캡처를 올리거나 상황을 설명하면 바로 대응카드를 만들어드려요.
             </p>
             <button
               type="button"
               onClick={() => navigate(ROUTES.HOME)}
-              className="mt-5 flex w-full items-center justify-center gap-1.5 rounded-full bg-[#08257e] py-3.5 text-[14px] font-bold text-white"
-              style={{ borderRadius: "9999px" }}
+              className="mt-6 flex w-full items-center justify-center gap-1.5 rounded-full bg-[#08257e] py-3.5 text-[14px] font-bold text-white"
+              style={{ borderRadius: "9999px", marginTop: "24px" }}
             >
               지금 확인하기
               <ArrowRight size={16} />
